@@ -1,0 +1,30 @@
+{
+  // Example 04: Task Progress Notification
+  // Interface: da2a.task.progress (@notification)
+  // NOTE: "id" is ABSENT — JSON-RPC 2.0 Notification. No response expected.
+  "da2a": "1.0.0",
+  "msg_id": "aa0e8400-e29b-41d4-a716-446655440005",
+  "session_id": "770e8400-e29b-41d4-a716-446655440002",
+  "timestamp": "2026-05-06T12:02:30Z",
+  "from": "123456789012345678",
+  "channel_id": "111222333444555666",
+  "trace_id": "aabbccdd-1234-5678-abcd-ef0123456789",
+  "payload": {
+    "jsonrpc": "2.0",
+    // No "id" field — Notification pattern
+    "method": "da2a.task.progress",
+    "params": {
+      "task_id":   "990e8400-e29b-41d4-a716-446655440004",
+      "state":     "running",
+      "pct":       45,
+      "message":   "🔄 **Processing rows 22,500 / 50,000**\n- Schema validated ✅\n- Type coercion: 3 columns adjusted",
+      "log_level": "info",
+      "detail": {
+        "rows_processed":    22500,
+        "rows_total":        50000,
+        "validation_errors": 0,
+        "elapsed_ms":        4210
+      }
+    }
+  }
+}

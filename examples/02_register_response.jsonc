@@ -1,0 +1,38 @@
+{
+  // Example 02: Registration Response
+  // Direction: OrchestratorBot --> DataPipelineBot
+  "da2a": "1.0.0",
+  "msg_id": "660e8400-e29b-41d4-a716-446655440001",
+  "timestamp": "2026-05-06T12:00:00.150Z",
+  "from": "987654321098765432",
+  "to":   "123456789012345678",
+  "channel_id": "111222333444555666",
+  "reply_to_msg": "550e8400-e29b-41d4-a716-446655440000",
+  "payload": {
+    "jsonrpc": "2.0",
+    "id": "reg-001",
+    "result": {
+      "accepted": true,
+      "session_id": "770e8400-e29b-41d4-a716-446655440002",
+      "peers": [
+        {
+          "agent_id": "111122223333444455",
+          "name": "CodeReviewBot",
+          "description": "Performs static analysis, security scanning, and style checking on code.",
+          "version": "1.1.0",
+          "role": "worker",
+          "capabilities": ["code-review", "security-scan", "linting"],
+          "skills": [
+            {
+              "id": "review_python",
+              "name": "Review Python Code",
+              "description": "Runs pylint, bandit, and mypy on a Python snippet or file URL.",
+              "method": "da2a.task.submit",
+              "tags": ["python", "lint", "security"]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

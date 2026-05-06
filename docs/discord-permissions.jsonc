@@ -1,0 +1,103 @@
+{
+  // ==========================================================================
+  // DA2A DISCORD BOT PERMISSIONS REFERENCE — v1.0.0
+  // ==========================================================================
+  "meta": {
+    "spec": "da2a/1.0.0",
+    "last_updated": "2026-05-06",
+    "discord_api_version": "v10"
+  },
+
+  "gateway_intents": {
+    "required": {
+      "GUILDS":          { "bit": 0,  "value": 1,     "type": "standard",   "@doc": "Guild create/update/delete and channel info." },
+      "GUILD_MESSAGES":  { "bit": 9,  "value": 512,   "type": "standard",   "@doc": "MESSAGE_CREATE/UPDATE/DELETE events. Mandatory for DA2A." },
+      "MESSAGE_CONTENT": { "bit": 15, "value": 32768, "type": "PRIVILEGED", "@doc": "Read actual message text. MUST be toggled ON in Developer Portal.", "requires_portal_toggle": true }
+    },
+    "recommended": {
+      "GUILD_MEMBERS":           { "bit": 1,  "value": 2,    "type": "PRIVILEGED", "@doc": "Member events. Required by orchestrators.", "requires_portal_toggle": true },
+      "GUILD_MESSAGE_REACTIONS": { "bit": 10, "value": 1024, "type": "standard",   "@doc": "Reaction events for emoji ACK signals." }
+    },
+    "combined_bitfield_examples": {
+      "minimum_required": { "intents": ["GUILDS", "GUILD_MESSAGES", "MESSAGE_CONTENT"], "value": 33281 },
+      "full_recommended":  { "intents": ["GUILDS", "GUILD_MEMBERS", "GUILD_MESSAGES", "GUILD_MESSAGE_REACTIONS", "MESSAGE_CONTENT"], "value": 34307 }
+    }
+  },
+
+  "bot_permissions": {
+    "orchestrator": {
+      "@doc": "Manages workflow, creates channels, assigns tasks, monitors all agents.",
+      "permissions": {
+        "VIEW_CHANNEL":             { "bit": 10, "value": 1024,        "required": true  },
+        "SEND_MESSAGES":            { "bit": 11, "value": 2048,        "required": true  },
+        "READ_MESSAGE_HISTORY":     { "bit": 16, "value": 65536,       "required": true  },
+        "MANAGE_CHANNELS":          { "bit": 4,  "value": 16,          "required": true,  "@doc": "Create/modify agent channels" },
+        "MANAGE_MESSAGES":          { "bit": 13, "value": 8192,        "required": true,  "@doc": "Pin status messages, delete expired protocol messages" },
+        "ADD_REACTIONS":            { "bit": 6,  "value": 64,          "required": false },
+        "EMBED_LINKS":              { "bit": 14, "value": 16384,       "required": false },
+        "ATTACH_FILES":             { "bit": 15, "value": 32768,       "required": false },
+        "USE_APPLICATION_COMMANDS": { "bit": 31, "value": 2147483648,  "required": false }
+      },
+      "permission_integer": 2147616784
+    },
+    "worker": {
+      "@doc": "Executes tasks. Only needs access to designated channel(s).",
+      "permissions": {
+        "VIEW_CHANNEL":         { "bit": 10, "value": 1024,  "required": true  },
+        "SEND_MESSAGES":        { "bit": 11, "value": 2048,  "required": true  },
+        "READ_MESSAGE_HISTORY": { "bit": 16, "value": 65536, "required": true  },
+        "ADD_REACTIONS":        { "bit": 6,  "value": 64,    "required": false },
+        "EMBED_LINKS":          { "bit": 14, "value": 16384, "required": false },
+        "ATTACH_FILES":         { "bit": 15, "value": 32768, "required": false }
+      },
+      "permission_integer": 274978476
+    },
+    "observer": {
+      "@doc": "Read-only monitoring. Does not write to channels.",
+      "permissions": {
+        "VIEW_CHANNEL":         { "bit": 10, "value": 1024,  "required": true },
+        "READ_MESSAGE_HISTORY": { "bit": 16, "value": 65536, "required": true }
+      },
+      "permission_integer": 66560
+    },
+    "validator": {
+      "@doc": "Inspects outputs, emits approval/rejection reactions.",
+      "permissions": {
+        "VIEW_CHANNEL":         { "bit": 10, "value": 1024,  "required": true  },
+        "SEND_MESSAGES":        { "bit": 11, "value": 2048,  "required": true  },
+        "READ_MESSAGE_HISTORY": { "bit": 16, "value": 65536, "required": true  },
+        "ADD_REACTIONS":        { "bit": 6,  "value": 64,    "required": true,  "@doc": "Core approval/rejection signaling" },
+        "MANAGE_MESSAGES":      { "bit": 13, "value": 8192,  "required": false }
+      },
+      "permission_integer": 74816
+    },
+    "notifier": {
+      "@doc": "Publishes announcements and reports.",
+      "permissions": {
+        "VIEW_CHANNEL":  { "bit": 10, "value": 1024,  "required": true  },
+        "SEND_MESSAGES": { "bit": 11, "value": 2048,  "required": true  },
+        "EMBED_LINKS":   { "bit": 14, "value": 16384, "required": false },
+        "ATTACH_FILES":  { "bit": 15, "value": 32768, "required": false }
+      },
+      "permission_integer": 51200
+    }
+  },
+
+  "oauth2_invite_urls": {
+    "orchestrator": "https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot+applications.commands&permissions=2147616784",
+    "worker":       "https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot&permissions=274978476",
+    "observer":     "https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot&permissions=66560",
+    "validator":    "https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot&permissions=74816",
+    "notifier":     "https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot&permissions=51200"
+  },
+
+  "developer_portal_checklist": [
+    { "step": 1, "action": "Create Application",             "detail": "Developer Portal > New Application. One per agent bot." },
+    { "step": 2, "action": "Enable Bot User",                "detail": "Bot tab > Add Bot. Copy token to .env. NEVER commit tokens." },
+    { "step": 3, "action": "Enable MESSAGE_CONTENT Intent",  "detail": "Bot > Privileged Gateway Intents > Message Content Intent > ON. REQUIRED." },
+    { "step": 4, "action": "Enable GUILD_MEMBERS (orchestrator)", "detail": "Bot > Privileged Gateway Intents > Server Members Intent > ON." },
+    { "step": 5, "action": "Generate OAuth2 URL",             "detail": "OAuth2 > URL Generator > select scope + permissions per role table." },
+    { "step": 6, "action": "Invite to Server",               "detail": "Open URL, select guild, authorize." },
+    { "step": 7, "action": "Configure Channel Permissions",  "detail": "Restrict each bot to its DA2A channels via Discord role overrides." }
+  ]
+}

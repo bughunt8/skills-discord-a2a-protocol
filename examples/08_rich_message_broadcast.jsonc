@@ -1,0 +1,38 @@
+{
+  // Example 08: Rich Text Broadcast — Markdown + Table + Code Block
+  // Interface: da2a.message.send
+  // "to" omitted = broadcast to all channel agents
+  "da2a": "1.0.0",
+  "msg_id": "ee0e8400-e29b-41d4-a716-446655440009",
+  "session_id": "770e8400-e29b-41d4-a716-446655440002",
+  "timestamp": "2026-05-06T12:10:00Z",
+  "from": "987654321098765432",
+  "channel_id": "111222333444555666",
+  "priority": "normal",
+  "payload": {
+    "jsonrpc": "2.0",
+    "id": "msg-broadcast-001",
+    "method": "da2a.message.send",
+    "params": {
+      "content": {
+        "parts": [
+          {
+            "type": "text/markdown",
+            "content": "## 📊 Pipeline Run Summary\n\n✅ **3/3** tasks completed | ❌ **0** failures | ⏱ Total: **4m 22s**"
+          },
+          {
+            "type": "text/table",
+            "title": "Task Summary",
+            "content": "| Agent | Skill | Status | Duration |\n|-------|-------|--------|----------|\n| DataPipelineBot | ingest_csv | ✅ | 2m 54s |\n| CodeReviewBot | review_python | ✅ | 48s |"
+          },
+          {
+            "type": "text/code",
+            "lang": "bash",
+            "title": "Next Stage",
+            "content": "pipeline run --stage transform --input analytics.sales_q1_2026"
+          }
+        ]
+      }
+    }
+  }
+}

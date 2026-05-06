@@ -1,0 +1,250 @@
+{
+  // ==========================================================================
+  // DISCORD AGENT-TO-AGENT COMMUNICATION PROTOCOL (DA2A)
+  // Version: 1.0.0  |  IDL + JSON-RPC 2.0  |  Transport: Discord Gateway
+  // ==========================================================================
+  "module": "da2a",
+  "version": "1.0.0",
+  "transport": "discord/gateway+rest",
+  "encoding": "jsonc",
+  "rpc_protocol": "json-rpc/2.0",
+
+  "types": {
+    "AgentId":       { "type": "string", "format": "discord-snowflake" },
+    "MessageId":     { "type": "string", "format": "uuid" },
+    "SessionId":     { "type": "string", "format": "uuid" },
+    "TaskId":        { "type": "string", "format": "uuid" },
+    "CapabilityTag": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" },
+    "Priority":      { "type": "string", "enum": ["critical", "high", "normal", "low", "background"] },
+    "AgentRole":     { "type": "string", "enum": ["orchestrator", "worker", "observer", "validator", "notifier"] },
+    "TaskState":     { "type": "string", "enum": ["submitted", "queued", "running", "awaiting_input", "completed", "failed", "cancelled", "timed_out"] },
+    "ContentType":   { "type": "string", "enum": ["text/plain", "text/markdown", "application/json", "text/code", "text/table", "application/embed", "application/error"] },
+    "LogLevel":      { "type": "string", "enum": ["trace", "debug", "info", "warn", "error", "fatal"] }
+  },
+
+  "structs": {
+    "AgentCard": {
+      "@doc": "Machine-readable identity and capability declaration. Published on connect and cached by peers.",
+      "@id": 1,
+      "fields": {
+        "agent_id":        { "type": "AgentId",        "required": true },
+        "name":            { "type": "string",          "required": true },
+        "description":     { "type": "markdown",        "required": true,  "@doc": "CommonMark; parsed by LLM orchestrators for routing" },
+        "version":         { "type": "semver",          "required": true },
+        "role":            { "type": "AgentRole",       "required": true },
+        "capabilities":    { "type": "CapabilityTag[]", "required": true },
+        "skills":          { "type": "SkillDef[]",      "required": true },
+        "input_modes":     { "type": "ContentType[]",   "required": false },
+        "output_modes":    { "type": "ContentType[]",   "required": false },
+        "max_concurrency": { "type": "uint32",          "required": false, "@doc": "0 = unlimited" },
+        "ttl_seconds":     { "type": "uint32",          "required": false },
+        "metadata":        { "type": "json",            "required": false }
+      }
+    },
+
+    "SkillDef": {
+      "@doc": "One callable capability. Acts as an IDL method signature with JSON Schema contracts.",
+      "@id": 2,
+      "fields": {
+        "id":            { "type": "string",          "required": true },
+        "name":          { "type": "string",          "required": true },
+        "description":   { "type": "markdown",        "required": true },
+        "method":        { "type": "string",          "required": true },
+        "input_schema":  { "type": "json",            "required": false },
+        "output_schema": { "type": "json",            "required": false },
+        "tags":          { "type": "CapabilityTag[]", "required": false },
+        "examples":      { "type": "string[]",        "required": false },
+        "requires_auth": { "type": "boolean",         "required": false }
+      }
+    },
+
+    "MessageEnvelope": {
+      "@doc": "Standard wire-format wrapper. Every DA2A channel message MUST be encoded as a MessageEnvelope.",
+      "@id": 3,
+      "fields": {
+        "da2a":         { "type": "semver",    "required": true,  "@doc": "MUST be '1.0.0'" },
+        "msg_id":       { "type": "MessageId", "required": true,  "@doc": "Unique UUID v4 for deduplication" },
+        "session_id":   { "type": "SessionId", "required": false },
+        "timestamp":    { "type": "timestamp", "required": true,  "@doc": "ISO 8601 UTC send time" },
+        "from":         { "type": "AgentId",   "required": true },
+        "to":           { "type": "AgentId",   "required": false, "@doc": "Omit for broadcast" },
+        "reply_to_msg": { "type": "MessageId", "required": false },
+        "channel_id":   { "type": "string",    "required": true },
+        "priority":     { "type": "Priority",  "required": false },
+        "ttl_seconds":  { "type": "uint32",    "required": false },
+        "trace_id":     { "type": "uuid",      "required": false },
+        "payload":      { "type": "RpcFrame",  "required": true }
+      }
+    },
+
+    "RpcFrame": {
+      "@doc": "Strict JSON-RPC 2.0 frame.",
+      "@id": 4,
+      "fields": {
+        "jsonrpc": { "type": "string",   "required": true,  "@doc": "MUST be '2.0'" },
+        "id":      { "type": "string",   "required": false, "@doc": "Omit for Notifications" },
+        "method":  { "type": "string",   "required": false },
+        "params":  { "type": "json",     "required": false },
+        "result":  { "type": "json",     "required": false },
+        "error":   { "type": "RpcError", "required": false }
+      }
+    },
+
+    "RpcError": {
+      "@doc": "JSON-RPC 2.0 error + DA2A codes (-32000 to -32099).",
+      "@id": 5,
+      "fields": {
+        "code":    { "type": "int32",  "required": true },
+        "message": { "type": "string", "required": true },
+        "data":    { "type": "json",   "required": false }
+      }
+    },
+
+    "RichContent": {
+      "@doc": "Multipart content block.",
+      "@id": 6,
+      "fields": {
+        "parts": { "type": "ContentPart[]", "required": true }
+      }
+    },
+
+    "ContentPart": {
+      "@doc": "One typed unit within a RichContent payload.",
+      "@id": 7,
+      "fields": {
+        "type":        { "type": "ContentType", "required": true },
+        "content":     { "type": "string",      "required": false },
+        "content_url": { "type": "string",      "required": false, "@doc": "URL for large content; mutually exclusive with content" },
+        "encoding":    { "type": "string",      "required": false },
+        "lang":        { "type": "string",      "required": false, "@doc": "Language hint for text/code" },
+        "title":       { "type": "string",      "required": false },
+        "metadata":    { "type": "json",        "required": false }
+      }
+    },
+
+    "TaskSpec": {
+      "@doc": "Input contract for delegating work to a worker agent.",
+      "@id": 8,
+      "fields": {
+        "task_id":          { "type": "TaskId",      "required": true },
+        "skill_id":         { "type": "string",      "required": true },
+        "input":            { "type": "RichContent", "required": true },
+        "context":          { "type": "json",        "required": false },
+        "deadline_utc":     { "type": "timestamp",   "required": false },
+        "priority":         { "type": "Priority",    "required": false },
+        "callback_channel": { "type": "string",      "required": false },
+        "idempotency_key":  { "type": "string",      "required": false }
+      }
+    },
+
+    "TaskResult": {
+      "@doc": "Output contract from a worker agent.",
+      "@id": 9,
+      "fields": {
+        "task_id":     { "type": "TaskId",      "required": true },
+        "state":       { "type": "TaskState",   "required": true },
+        "output":      { "type": "RichContent", "required": false },
+        "error":       { "type": "RpcError",    "required": false },
+        "duration_ms": { "type": "uint64",      "required": false },
+        "tokens_used": { "type": "uint32",      "required": false },
+        "artifacts":   { "type": "Artifact[]",  "required": false }
+      }
+    },
+
+    "Artifact": {
+      "@doc": "Named output artifact produced during task execution.",
+      "@id": 10,
+      "fields": {
+        "name":       { "type": "string",    "required": true },
+        "mime_type":  { "type": "mime_type", "required": true },
+        "url":        { "type": "string",    "required": false },
+        "content":    { "type": "string",    "required": false },
+        "size_bytes": { "type": "uint64",    "required": false },
+        "checksum":   { "type": "string",    "required": false, "@doc": "SHA-256 hex digest" },
+        "encoding":   { "type": "string",    "required": false }
+      }
+    },
+
+    "ProgressEvent": {
+      "@doc": "Async progress notification. Sent as JSON-RPC 2.0 Notification (no id).",
+      "@id": 11,
+      "fields": {
+        "task_id":   { "type": "TaskId",    "required": true },
+        "state":     { "type": "TaskState", "required": true },
+        "pct":       { "type": "uint32",    "required": false },
+        "message":   { "type": "markdown",  "required": false },
+        "log_level": { "type": "LogLevel",  "required": false },
+        "detail":    { "type": "json",      "required": false }
+      }
+    },
+
+    "ErrorCode": {
+      "@doc": "DA2A error codes (-32000 to -32099).",
+      "@id": 12,
+      "values": {
+        "AGENT_NOT_FOUND":       { "code": -32000 },
+        "SKILL_NOT_FOUND":       { "code": -32001 },
+        "TASK_NOT_FOUND":        { "code": -32002 },
+        "SESSION_EXPIRED":       { "code": -32003 },
+        "RATE_LIMITED":          { "code": -32004 },
+        "PERMISSION_DENIED":     { "code": -32005 },
+        "TASK_TIMEOUT":          { "code": -32006 },
+        "CAPACITY_EXCEEDED":     { "code": -32007 },
+        "INVALID_AGENT_CARD":    { "code": -32008 },
+        "DUPLICATE_TASK":        { "code": -32009 },
+        "BROADCAST_UNDELIVERED": { "code": -32010 },
+        "CONTENT_TOO_LARGE":     { "code": -32011 }
+      }
+    }
+  },
+
+  "interfaces": {
+
+    "registry": {
+      "@id": 1,
+      "@doc": "Agent presence, capability advertisement, and peer discovery.",
+      "register":   { "@id": 1, "method": "da2a.registry.register",   "@doc": "Publish AgentCard; receive peer list.",                   "params": { "card": { "type": "AgentCard", "required": true } },  "returns": { "accepted": { "type": "boolean" }, "peers": { "type": "AgentCard[]" }, "session_id": { "type": "SessionId" } } },
+      "deregister": { "@id": 2, "method": "da2a.registry.deregister", "@doc": "Graceful shutdown signal.",                               "params": { "agent_id": { "type": "AgentId", "required": true } }, "returns": { "acknowledged": { "type": "boolean" } } },
+      "query":      { "@id": 3, "method": "da2a.registry.query",      "@doc": "Discover agents by capability, role, or skill.",           "params": { "capability": { "type": "CapabilityTag" }, "role": { "type": "AgentRole" }, "skill_id": { "type": "string" } }, "returns": { "agents": { "type": "AgentCard[]" } } },
+      "heartbeat":  { "@id": 4, "method": "da2a.registry.heartbeat",  "@doc": "Liveness signal every 30s.", "@notification": true,     "params": { "agent_id": { "type": "AgentId", "required": true }, "state": { "type": "TaskState" }, "load_pct": { "type": "uint32" } } }
+    },
+
+    "task": {
+      "@id": 2,
+      "@doc": "Task dispatch, lifecycle management, and result retrieval.",
+      "submit":     { "@id": 1, "method": "da2a.task.submit",     "@idempotent": true,           "@doc": "Dispatch TaskSpec to a worker.",                  "params": { "spec": { "type": "TaskSpec", "required": true } }, "returns": { "task_id": { "type": "TaskId" }, "state": { "type": "TaskState" }, "queue_pos": { "type": "uint32" } } },
+      "get_result": { "@id": 2, "method": "da2a.task.get_result",                                "@doc": "Poll for current TaskResult.",                     "params": { "task_id": { "type": "TaskId", "required": true } }, "returns": { "type": "TaskResult" } },
+      "cancel":     { "@id": 3, "method": "da2a.task.cancel",                                    "@doc": "Best-effort cancellation.",                       "params": { "task_id": { "type": "TaskId", "required": true }, "reason": { "type": "string" } }, "returns": { "cancelled": { "type": "boolean" } } },
+      "progress":   { "@id": 4, "method": "da2a.task.progress",   "@notification": true,         "@doc": "Streaming progress broadcast. No response.",      "params": { "type": "ProgressEvent" } },
+      "complete":   { "@id": 5, "method": "da2a.task.complete",   "@notification": true,         "@doc": "Final completion broadcast with full TaskResult.",  "params": { "type": "TaskResult" } }
+    },
+
+    "message": {
+      "@id": 3,
+      "@doc": "Rich text A2A messaging.",
+      "send":  { "@id": 1, "method": "da2a.message.send",  "@doc": "Send multipart RichContent.",              "params": { "content": { "type": "RichContent", "required": true }, "reply_to": { "type": "MessageId" }, "thread_id": { "type": "string" } }, "returns": { "delivered": { "type": "boolean" }, "discord_msg_id": { "type": "string" } } },
+      "react": { "@id": 2, "method": "da2a.message.react", "@doc": "Emoji ACK signal.", "@notification": true, "params": { "discord_msg_id": { "type": "string", "required": true }, "emoji": { "type": "string", "required": true } } }
+    },
+
+    "session": {
+      "@id": 4,
+      "@doc": "Session lifecycle for stateful multi-turn workflows.",
+      "create":         { "@id": 1, "method": "da2a.session.create",         "@doc": "Create session.",                     "params": { "participants": { "type": "AgentId[]", "required": true }, "context": { "type": "json" }, "ttl_seconds": { "type": "uint32" } }, "returns": { "session_id": { "type": "SessionId" }, "expires_at": { "type": "timestamp" } } },
+      "update_context": { "@id": 2, "method": "da2a.session.update_context", "@doc": "RFC 7396 patch shared context.",         "params": { "session_id": { "type": "SessionId", "required": true }, "patch": { "type": "json", "required": true } }, "returns": { "context": { "type": "json" } } },
+      "close":          { "@id": 3, "method": "da2a.session.close",          "@doc": "Gracefully close session.",             "params": { "session_id": { "type": "SessionId", "required": true }, "reason": { "type": "string" } }, "returns": { "closed": { "type": "boolean" } } }
+    }
+  },
+
+  "transport_constraints": {
+    "max_message_chars":                   2000,
+    "max_embed_chars":                     6000,
+    "max_embed_fields":                    25,
+    "max_embeds_per_msg":                  10,
+    "max_file_size_bytes":                 26214400,
+    "rate_limit_msgs_per_channel_per_sec": 5,
+    "rate_limit_global_per_sec":           50,
+    "encoding":                            "UTF-8",
+    "required_intents":     ["GUILDS", "GUILD_MESSAGES", "MESSAGE_CONTENT"],
+    "recommended_intents":  ["GUILD_MEMBERS", "GUILD_MESSAGE_REACTIONS"]
+  }
+}

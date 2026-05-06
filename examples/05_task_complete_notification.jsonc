@@ -1,0 +1,44 @@
+{
+  // Example 05: Task Completion Notification with Rich Output + Artifacts
+  // Interface: da2a.task.complete (@notification)
+  "da2a": "1.0.0",
+  "msg_id": "bb0e8400-e29b-41d4-a716-446655440006",
+  "session_id": "770e8400-e29b-41d4-a716-446655440002",
+  "timestamp": "2026-05-06T12:04:55Z",
+  "from": "123456789012345678",
+  "channel_id": "111222333444555666",
+  "payload": {
+    "jsonrpc": "2.0",
+    // No "id" — Notification
+    "method": "da2a.task.complete",
+    "params": {
+      "task_id":     "990e8400-e29b-41d4-a716-446655440004",
+      "state":       "completed",
+      "duration_ms": 174200,
+      "tokens_used": 1840,
+      "output": {
+        "parts": [
+          {
+            "type": "text/markdown",
+            "title": "Ingestion Summary",
+            "content": "## ✅ Ingestion Complete: Q1 Sales 2026\n\n| Metric | Value |\n|--------|-------|\n| Rows | **50,000** |\n| Quality score | **0.97** |\n| Warnings | 3 |"
+          },
+          {
+            "type": "application/json",
+            "title": "Inferred Schema",
+            "content": "{\"columns\":{\"date\":{\"type\":\"datetime64[ns]\"},\"revenue\":{\"type\":\"float64\"}},\"quality_score\":0.97}"
+          }
+        ]
+      },
+      "artifacts": [
+        {
+          "name":       "q1-sales-schema.json",
+          "mime_type":  "application/json",
+          "url":        "https://storage.example.com/artifacts/q1-sales-schema-2026-05-06.json",
+          "size_bytes": 2048,
+          "checksum":   "a3f5e8c1d2b4f7a9e0c3d6b9f2a5e8c1d4b7a0f3e6c9d2b5a8f1e4c7d0b3a6"
+        }
+      ]
+    }
+  }
+}

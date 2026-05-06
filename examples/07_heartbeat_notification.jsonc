@@ -1,0 +1,21 @@
+{
+  // Example 07: Heartbeat Notification — 30s Liveness Signal
+  // Interface: da2a.registry.heartbeat (@notification)
+  "da2a": "1.0.0",
+  "msg_id": "dd0e8400-e29b-41d4-a716-446655440008",
+  "timestamp": "2026-05-06T12:05:30Z",
+  "from": "123456789012345678",
+  "channel_id": "111222333444555666",
+  "priority": "background",
+  "ttl_seconds": 35,
+  "payload": {
+    "jsonrpc": "2.0",
+    // No "id" — Notification
+    "method": "da2a.registry.heartbeat",
+    "params": {
+      "agent_id": "123456789012345678",
+      "state":    "running",
+      "load_pct": 45
+    }
+  }
+}

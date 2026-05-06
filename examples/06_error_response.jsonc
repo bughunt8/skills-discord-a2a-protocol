@@ -1,0 +1,23 @@
+{
+  // Example 06: JSON-RPC 2.0 Error Response — SKILL_NOT_FOUND (-32001)
+  "da2a": "1.0.0",
+  "msg_id": "cc0e8400-e29b-41d4-a716-446655440007",
+  "timestamp": "2026-05-06T12:05:00Z",
+  "from": "123456789012345678",
+  "to":   "987654321098765432",
+  "channel_id": "111222333444555666",
+  "reply_to_msg": "880e8400-e29b-41d4-a716-446655440003",
+  "payload": {
+    "jsonrpc": "2.0",
+    "id": "task-submit-001",
+    "error": {
+      "code": -32001,
+      "message": "Skill not found: 'ingest_parquet'",
+      "data": {
+        "requested_skill":  "ingest_parquet",
+        "available_skills": ["ingest_csv", "transform_json", "validate_schema"],
+        "suggestion":       "Did you mean 'ingest_csv'? Parquet support planned for v3.0.0."
+      }
+    }
+  }
+}

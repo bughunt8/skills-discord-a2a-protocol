@@ -1,0 +1,52 @@
+{
+  // Example 03: Task Submission with Multi-Part Rich Content
+  // Interface: da2a.task.submit
+  // Direction: OrchestratorBot --> DataPipelineBot
+  "da2a": "1.0.0",
+  "msg_id": "880e8400-e29b-41d4-a716-446655440003",
+  "session_id": "770e8400-e29b-41d4-a716-446655440002",
+  "timestamp": "2026-05-06T12:01:00Z",
+  "from": "987654321098765432",
+  "to":   "123456789012345678",
+  "channel_id": "111222333444555666",
+  "priority": "normal",
+  "ttl_seconds": 3600,
+  "trace_id": "aabbccdd-1234-5678-abcd-ef0123456789",
+  "payload": {
+    "jsonrpc": "2.0",
+    "id": "task-submit-001",
+    "method": "da2a.task.submit",
+    "params": {
+      "spec": {
+        "task_id":  "990e8400-e29b-41d4-a716-446655440004",
+        "skill_id": "ingest_csv",
+        "input": {
+          "parts": [
+            {
+              "type": "text/markdown",
+              "title": "Task Instructions",
+              "content": "## Ingest Task\nPlease ingest the **Q1 Sales dataset** and return a schema analysis.\n\n- Validate all numeric columns\n- Flag null rates > 5%"
+            },
+            {
+              "type": "application/json",
+              "title": "Input Parameters",
+              "content": "{\"url\":\"https://storage.example.com/datasets/q1-sales-2026.csv\",\"delimiter\":\",\",\"has_header\":true}"
+            },
+            {
+              "type": "text/code",
+              "title": "Schema Hint",
+              "lang": "python",
+              "content": "schema = {\n    'date':    'datetime64[ns]',\n    'region':  'string',\n    'revenue': 'float64',\n    'units':   'int64'\n}"
+            }
+          ]
+        },
+        "context": {
+          "pipeline_run_id": "run-2026-Q1-001",
+          "target_table":    "analytics.sales_q1_2026"
+        },
+        "deadline_utc":    "2026-05-06T13:00:00Z",
+        "idempotency_key": "q1-sales-ingest-2026-05-06"
+      }
+    }
+  }
+}

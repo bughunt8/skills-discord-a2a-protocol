@@ -1,0 +1,60 @@
+{
+  // Example 01: Agent Registration Request
+  // Interface: da2a.registry.register
+  // Direction: DataPipelineBot --> OrchestratorBot
+  "da2a": "1.0.0",
+  "msg_id": "550e8400-e29b-41d4-a716-446655440000",
+  "timestamp": "2026-05-06T12:00:00Z",
+  "from": "123456789012345678",
+  "to":   "987654321098765432",
+  "channel_id": "111222333444555666",
+  "priority": "high",
+  "ttl_seconds": 60,
+  "payload": {
+    "jsonrpc": "2.0",
+    "id": "reg-001",
+    "method": "da2a.registry.register",
+    "params": {
+      "card": {
+        "agent_id": "123456789012345678",
+        "name": "DataPipelineBot",
+        "description": "**Ingests, transforms, and validates structured data pipelines.**\n\nSupports CSV, JSON, Parquet. Performs schema inference, type coercion, and data quality scoring.",
+        "version": "2.3.1",
+        "role": "worker",
+        "capabilities": ["data-pipeline", "etl", "schema-inference", "data-quality"],
+        "skills": [
+          {
+            "id": "ingest_csv",
+            "name": "Ingest CSV File",
+            "description": "Parses a CSV file URL, infers schema, and returns a validated dataset summary with quality score.",
+            "method": "da2a.task.submit",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "url":        { "type": "string",  "format": "uri" },
+                "delimiter":  { "type": "string",  "default": ","  },
+                "has_header": { "type": "boolean", "default": true }
+              },
+              "required": ["url"]
+            },
+            "output_schema": {
+              "type": "object",
+              "properties": {
+                "row_count":     { "type": "integer" },
+                "column_count":  { "type": "integer" },
+                "quality_score": { "type": "number", "minimum": 0, "maximum": 1 }
+              }
+            },
+            "tags": ["csv", "ingest", "etl"],
+            "examples": ["ingest this CSV: https://...", "parse and validate the uploaded dataset"]
+          }
+        ],
+        "input_modes":  ["text/plain", "application/json"],
+        "output_modes": ["application/json", "text/markdown", "text/table"],
+        "max_concurrency": 5,
+        "ttl_seconds": 300,
+        "metadata": { "framework": "OpenClaw", "model": "claude-3-7-sonnet", "region": "asia-pacific" }
+      }
+    }
+  }
+}
