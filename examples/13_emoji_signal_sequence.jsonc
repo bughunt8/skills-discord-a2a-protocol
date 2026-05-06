@@ -1,0 +1,142 @@
+{
+  // ===========================================================================
+  // DA2A-HO Example 13 — Emoji-Only Signal Sequence
+  // Version: 1.4.0
+  //
+  // Shows how OpenClaw (orchestrator) and OpenCode (specialist) use emoji
+  // reactions as a zero-token, ~50ms control band during an active session.
+  //
+  // Scenario:
+  //   1. OpenClaw holds baton and posts a handoff packet.
+  //   2. OpenCode reacts ✅ ACK — no message needed.
+  //   3. OpenCode posts 💬 WORKING reaction to signal active processing.
+  //   4. OpenCode finishes and posts 🔁 BATON_PASS on its result message.
+  //   5. A third agent (agent.perplexity) posts 🙋 BATON_REQUEST.
+  //   6. OpenClaw (new holder) posts ▶️ RESUME after a brief pause.
+  //
+  // Discord-native fields (timestamp, channel_id, author, message_id) are
+  // shown in comments only — the harness reads them from the Discord object.
+  // ===========================================================================
+
+  "example": "13_emoji_signal_sequence",
+  "protocol_version": "1.4.0",
+  "description": "OpenClaw ↔ OpenCode emoji-only control band during baton exchange.",
+
+  "sequence": [
+
+    {
+      "step": 1,
+      "actor": "agent.openclaw",
+      "action": "post DA2A packet (talk.handoff) — baton transfer to OpenCode",
+      "da2a_packet": {
+        "l1": {
+          "conversation_hash": "conv-abc123",
+          "protocol_state":    "ACTIVE",
+          "baton": { "holder": "agent.openclaw", "created_at": "≪ from Discord message.timestamp ≫" }
+        },
+        "l2": {
+          "packet_id": "pkt-0041",
+          "seq":       41,
+          "intent":    "handoff",
+          "theme":     "human_readable"
+        },
+        "l3": { "local_cache_update": true, "evict_on_close": false, "encoding_layers": 1 },
+        "payload": {
+          "goal":             "Implement retry logic in fetch wrapper",
+          "phase":            "code-generation",
+          "decision_delta":   ["Use exponential backoff", "Cap at 5 retries"],
+          "requested_action": "Write TypeScript implementation",
+          "max_response_chars": 1200
+        }
+      },
+      // Baton transfers to OpenCode via BatonControl embedded in this packet.
+      // Harness also posts 🔁 BATON_PASS emoji reaction on this message.
+      "emoji_posted": "🔁"
+    },
+
+    {
+      "step": 2,
+      "actor": "agent.opencode",
+      "action": "emoji reaction only — ACK handoff packet",
+      "emoji_reaction": {
+        "target_message": "pkt-0041 Discord message",
+        "emoji": "✅",
+        "signal": "ACK",
+        "token_cost": 0,
+        "latency_ms": "~50"
+      },
+      "note": "No DA2A packet required. ✅ alone is sufficient to acknowledge receipt."
+    },
+
+    {
+      "step": 3,
+      "actor": "agent.opencode",
+      "action": "emoji reaction — signal active processing",
+      "emoji_reaction": {
+        "target_message": "baton-reference message",
+        "emoji": "💬",
+        "signal": "WORKING",
+        "token_cost": 0
+      }
+    },
+
+    {
+      "step": 4,
+      "actor": "agent.opencode",
+      "action": "post DA2A result packet + emoji BATON_PASS",
+      "da2a_packet": {
+        "l1": {
+          "conversation_hash": "conv-abc123",
+          "protocol_state":    "ACTIVE",
+          "baton": { "holder": "agent.opencode", "created_at": "≪ from Discord message.timestamp ≫" }
+        },
+        "l2": {
+          "packet_id": "pkt-0042",
+          "seq":       42,
+          "intent":    "result",
+          "theme":     "human_readable",
+          "reply_to":  "pkt-0041"
+        },
+        "l3": { "local_cache_update": true, "evict_on_close": false, "encoding_layers": 1 },
+        "payload": {
+          "decision_delta": ["TypeScript retry wrapper implemented", "Unit tests included"],
+          "open_questions": []
+        }
+      },
+      // Harness posts 🔁 on this result message to signal baton return to OpenClaw.
+      "emoji_posted": "🔁"
+    },
+
+    {
+      "step": 5,
+      "actor": "agent.perplexity",
+      "action": "emoji reaction — request baton next",
+      "emoji_reaction": {
+        "target_message": "baton-reference message",
+        "emoji": "🙋",
+        "signal": "BATON_REQUEST",
+        "token_cost": 0
+      }
+    },
+
+    {
+      "step": 6,
+      "actor": "agent.openclaw",
+      "action": "emoji reaction — resume session",
+      "emoji_reaction": {
+        "target_message": "baton-reference message",
+        "emoji": "▶️",
+        "signal": "RESUME",
+        "token_cost": 0
+      },
+      "note": "OpenClaw (now baton holder again) signals all agents to return to ACTIVE."
+    }
+  ],
+
+  "efficiency_summary": {
+    "total_da2a_packets":   2,
+    "total_emoji_signals":  5,
+    "tokens_saved_by_emoji": "~1800 (vs. 5 × ~360-char ACK/status packets)",
+    "control_band_overhead_reduction": "~99% for ACK/NACK/status signals"
+  }
+}
