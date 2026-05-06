@@ -3,51 +3,70 @@
   // DA2A-HO — Discord Agent-to-Agent High-Efficiency Operations Protocol
   // schema/protocol.idl.jsonc
   //
-  // Version   : 1.3.1
+  // Version   : 1.4.0
   // License   : MIT
   // Repo      : github.com/bughunt8/skills-discord-a2a-protocol
   //
   // Architecture: ISO-style 3-layer stack
-  //   Layer 1 — Accessing   : Medium access discipline (IEEE 802.11 CSMA/CA inspired)
-  //   Layer 2 — Talking     : Encoded packet transfer between agents
-  //   Layer 3 — Assimilation: Local KV-cache and context update from received data
+  //   Layer 1 — Accessing    : Medium access discipline (IEEE 802.11 CSMA/CA inspired)
+  //   Layer 2 — Talking      : Encoded packet transfer between agents
+  //   Layer 3 — Assimilation : Local KV-cache and context update from received data
+  //
+  // Security gate (pre-Layer 1):
+  //   Bell–LaPadula Admission Contract — see schema/admission.idl.jsonc.
+  //   Agent is IN POLICY from the moment AdmissionRequest is submitted.
+  //
+  // Emoji Control Band:
+  //   Discord emoji reactions are zero-token, ~50ms signals defined in
+  //   admission.idl.jsonc Section 2. All admitted agents MUST recognise them.
+  //   🛑 ALL_STOP and ⚠️ BLP_VIOLATION have unconditional halt semantics.
   //
   // Normative language follows RFC 2119: MUST / SHOULD / MAY.
   // ===========================================================================
 
   "meta": {
     "protocol":     "DA2A-HO",
-    "version":      "1.3.1",
-    "architecture": "ISO-style 3-layer",
+    "version":      "1.4.0",
+    "architecture": "ISO-style 3-layer + BLP admission gate",
     "transport":    "Discord-native first; envelope metadata as control supplement",
     "primary_goal": "Maximize semantic payload per token across: LLM-decode → Discord-transport → LLM-encode",
-    "efficiency_pillars": ["token","payload","cognitive","turn","reliability","observability"]
+    "efficiency_pillars": ["token","payload","cognitive","turn","reliability","observability"],
+    "emoji_control_band": "See admission.idl.jsonc Section 2 for canonical emoji signal vocabulary."
   },
 
   // ---------------------------------------------------------------------------
   // SECTION 1 — Primitive Types
   // ---------------------------------------------------------------------------
   "types": {
-    "AgentId":          "string",   // e.g. "agent.openclaw"
+    "AgentId":          "string",   // e.g. \"agent.openclaw\"
     "HumanId":          "string",
     "ChannelId":        "string",   // Discord channel / thread / DM identifier
     "ConversationHash": "string",   // Unique baton hash — 1 per channel at any time
     "PacketId":         "string",   // Per-packet UUID or slug
-    "Sha256":           "string",   // "sha256:<hex>"
+    "Sha256":           "string",   // \"sha256:<hex>\"
 
     // NOTE: timestamp, channel_id, author/from, to, and delivery_mode are ALL
     // provided by the Discord message object natively and MUST NOT be duplicated
     // inside DA2A-HO packet payloads. See L2TalkHeader for the boundary.
 
+    // EmojiSignal: a reaction emoji from the canonical vocabulary in admission.idl.jsonc.
+    // Posted on the baton-reference message or the triggering message.
+    // Harnesses MUST monitor reactions on baton-reference messages continuously.
+    "EmojiSignal": {
+      "description": "One of the canonical emoji signals. See admission.idl.jsonc §2 for full table.",
+      "values": ["✅","❌","🔁","🙋","🛑","▶️","👤","🔒","🚫","⚠️","💬","⏳","📎","🧠","🏁"],
+      "unconditional_halt": ["🛑","⚠️"]
+    },
+
     "PacketTheme": [
-      "human_readable",   // default — "[DA2A-HO pkt=N conv=X ...]" compact text header
+      "human_readable",   // default — \"[DA2A-HO pkt=N conv=X ...]\" compact text header
       "compact_json"      // machine-first opcode arrays; negotiated between agents
     ],
     "AccessMode": [
       "listen",    // observing medium — no transmission permitted
       "contend",   // ready to transmit; waiting for clear medium
       "transmit",  // actively sending; baton held
-      "backoff",   // post-collision or ALL_STOP randomized wait
+      "backoff",   // post-collision or ALL_STOP randomised wait
       "override"   // human operator has seized baton
     ],
     "ProtocolState": [
@@ -114,9 +133,9 @@
     },
 
     "BackoffConfig": {
-      "min_ms":                "number",
-      "max_ms":                "number",
-      "jitter":                "boolean",
+      "min_ms":                 "number",
+      "max_ms":                 "number",
+      "jitter":                 "boolean",
       "cancel_pending_replies": "boolean"
     }
   },
@@ -145,7 +164,7 @@
       "theme":        "PacketTheme",
       "reply_to":     "PacketId|null",  // DA2A-level thread correlation
       "ack":          "AckState|null",
-      "content_hash": "Sha256|null"     // SHA-256 of serialized payload (Discord does not provide)
+      "content_hash": "Sha256|null"     // SHA-256 of serialised payload (Discord does not provide)
     },
 
     "AckState": {
@@ -185,20 +204,20 @@
       "cache_id":               "string",
       "owner":                  "AgentId",
       "model_family":           "string",
-      "compatibility":          "string",   // "metadata_only" | "binary_compatible" | "none"
+      "compatibility":          "string",   // \"metadata_only\" | \"binary_compatible\" | \"none\"
       "uri":                    "string|null",
       "sha256":                 "Sha256|null",
       "fallback_text_required": "boolean"
     },
 
     "ChannelQuality": {
-      "latency_ms_avg":    "number",
-      "message_loss_rate": "number",
-      "duplicate_rate":    "number",
-      "parse_error_rate":  "number",
-      "out_of_order_count":"number",
-      "rate_limit_events": "number",
-      "confidence":        "number"
+      "latency_ms_avg":     "number",
+      "message_loss_rate":  "number",
+      "duplicate_rate":     "number",
+      "parse_error_rate":   "number",
+      "out_of_order_count": "number",
+      "rate_limit_events":  "number",
+      "confidence":         "number"
     }
   },
 
@@ -306,18 +325,19 @@
       "IDLE","OPENING","ACTIVE","DEGRADED_SIGNAL",
       "COLLISION_BACKOFF","HUMAN_OVERRIDE","CLOSED"
     ],
+    "note": "OPENING does not transition to ACTIVE until all expected agents are ADMITTED (see admission.idl.jsonc).",
     "transitions": [
       { "from": "IDLE",              "to": "OPENING",           "trigger": "access.baton.claim" },
-      { "from": "OPENING",           "to": "ACTIVE",            "trigger": "talk.open + ack received" },
-      { "from": "ACTIVE",            "to": "DEGRADED_SIGNAL",   "trigger": "ChannelQuality confidence < 0.5" },
-      { "from": "ACTIVE",            "to": "COLLISION_BACKOFF", "trigger": "access.all_stop" },
-      { "from": "ACTIVE",            "to": "HUMAN_OVERRIDE",    "trigger": "access.baton.take (human)" },
+      { "from": "OPENING",           "to": "ACTIVE",            "trigger": "talk.open + ack received + all agents ADMITTED" },
+      { "from": "ACTIVE",            "to": "DEGRADED_SIGNAL",   "trigger": "ChannelQuality.confidence < 0.5" },
+      { "from": "ACTIVE",            "to": "COLLISION_BACKOFF", "trigger": "access.all_stop OR 🛑 emoji" },
+      { "from": "ACTIVE",            "to": "HUMAN_OVERRIDE",    "trigger": "access.baton.take (human) OR ⚠️ BLP_VIOLATION emoji" },
       { "from": "DEGRADED_SIGNAL",   "to": "ACTIVE",            "trigger": "quality recovered" },
       { "from": "DEGRADED_SIGNAL",   "to": "COLLISION_BACKOFF", "trigger": "parse_error_rate > threshold" },
-      { "from": "COLLISION_BACKOFF", "to": "ACTIVE",            "trigger": "access.resume after backoff" },
+      { "from": "COLLISION_BACKOFF", "to": "ACTIVE",            "trigger": "access.resume OR ▶️ emoji after backoff" },
       { "from": "HUMAN_OVERRIDE",    "to": "ACTIVE",            "trigger": "human releases baton" },
       { "from": "HUMAN_OVERRIDE",    "to": "CLOSED",            "trigger": "human issues close" },
-      { "from": "ACTIVE",            "to": "CLOSED",            "trigger": "talk.close acknowledged" }
+      { "from": "ACTIVE",            "to": "CLOSED",            "trigger": "talk.close acknowledged OR 🏁 emoji" }
     ]
   },
 
@@ -330,6 +350,8 @@
     "discord_attachment_limit_mb":        25,
     "escalation_to_attachment_chars":     1800,
     "escalation_to_external_store_bytes": 26214400,
+    "emoji_reaction_latency_ms":          50,   // approximate; zero token cost
+    "emoji_reaction_token_cost":          0,
 
     // Harness delivery selection order — NOT carried inside the DA2A packet.
     // Discord message type is the delivery record; this array guides harness behaviour only.
@@ -345,7 +367,9 @@
       "Implementations SHOULD use Discord-native DM, reply, and thread as the primary delivery substrate.",
       "Implementations SHOULD prefer compact state deltas, hashes, and references over transcript replay.",
       "Implementations MAY use external object storage for artifacts exceeding Discord limits or requiring durable multi-session retrieval.",
-      "Implementations MUST NOT assume direct remote memory mounting between agent runtimes over Discord transport."
+      "Implementations MUST NOT assume direct remote memory mounting between agent runtimes over Discord transport.",
+      "Harnesses MUST support the canonical emoji signal vocabulary and MUST monitor reactions on baton-reference messages.",
+      "🛑 ALL_STOP and ⚠️ BLP_VIOLATION emoji reactions trigger unconditional halt — any agent MAY post; all MUST honour."
     ]
   }
 }
