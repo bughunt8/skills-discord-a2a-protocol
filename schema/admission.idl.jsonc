@@ -2,29 +2,39 @@
   // ===========================================================================
   // DA2A-HO admission.idl.jsonc
   //
-  // Version : 1.3.1
+  // Version : 1.4.0
   // Purpose : Bell–LaPadula (BLP) join / admission protocol.
   //           Every agent MUST complete this handshake before participating
   //           in any DA2A-HO conversation. The conversation does not advance
   //           past L1 state=OPENING until all expected agents are ADMITTED.
   //
-  // BLP Model — "write up, read down" (WURD):
-  //   Simple Security  — agent MUST NOT read above its clearance
-  //   Star (*)         — agent MUST NOT write below its clearance
-  //   Discretionary    — access matrix governs per-agent permissions
+  // BLP Model (https://en.wikipedia.org/wiki/Bell%E2%80%93LaPadula_model):
+  //   Simple Security  — agent MUST NOT read above its clearance (no read-up)
+  //   Star (★)          — agent MUST NOT write below its clearance (no write-down)
+  //   Discretionary    — access matrix governs per-agent PacketIntent permissions
   //   Tranquility      — clearance is IMMUTABLE for the session lifetime
   //
-  // Any violation causes IMMEDIATE session halt; baton transfers to human.
+  // IN-POLICY PRE-DECISION RULE:
+  //   An agent is IN POLICY from the moment it submits AdmissionRequest with all
+  //   agreement fields true. BLP rules are active and enforced BEFORE AdmissionDecision
+  //   arrives. The agent defaults to the most restrictive discretionary posture
+  //   (["ack","nack"] only) until the full AccessMatrix is delivered.
+  //
+  // Any BLP violation causes IMMEDIATE session halt; baton transfers to human
+  //   unconditionally; ⚠️ emoji posted by harness.
+  //
+  // EMOJI CONTROL BAND:
+  //   Discord emoji reactions are zero-token, ~50ms signals. DA2A-HO defines a
+  //   canonical vocabulary (Section 2). All admitted agents MUST recognise them.
   //
   // NOTE ON DISCORD-NATIVE FIELDS:
   //   timestamp, channel_id, author/from, delivery_mode are provided by Discord.
-  //   They are NOT included in admission payloads. The harness reads them from
-  //   the Discord message object directly.
+  //   They are NOT included in admission payloads.
   // ===========================================================================
 
   "meta": {
     "schema":  "admission",
-    "version": "1.3.1",
+    "version": "1.4.0",
     "model":   "Bell–LaPadula (BLP)",
     "ref":     "https://en.wikipedia.org/wiki/Bell%E2%80%93LaPadula_model"
   },
@@ -34,9 +44,10 @@
   // ---------------------------------------------------------------------------
   "ClearanceLevel": {
     "type": "enum",
+    "description": "Ordinal clearance scale. Higher ordinal dominates lower.",
     "values": [
-      "PUBLIC",       // 0 — unrestricted
-      "INTERNAL",     // 1 — session-scoped
+      "PUBLIC",       // 0 — unrestricted; any agent
+      "INTERNAL",     // 1 — session-scoped; joined agents only
       "CONFIDENTIAL", // 2 — task-specific; assigned agents only
       "RESTRICTED",   // 3 — orchestrator + human only
       "HUMAN_ONLY"    // 4 — human operator exclusively; dominates all
@@ -44,37 +55,80 @@
   },
 
   // ---------------------------------------------------------------------------
-  // SECTION 2 — BLP Access Rules (normative)
+  // SECTION 2 — Emoji Signal Vocabulary (canonical, normative)
+  //
+  // Discord emoji reactions are free in token cost and near-zero latency.
+  // They form a zero-overhead control band supplementary to DA2A packets.
+  // All admitted agents MUST recognise and honour this vocabulary.
+  // 🛑 ALL_STOP and ⚠️ BLP_VIOLATION have unconditional halt semantics.
+  // ---------------------------------------------------------------------------
+  "EmojiSignals": {
+    "type": "enum",
+    "description": "Canonical emoji reactions. Posted on the baton-reference message or the triggering message.",
+    "values": {
+      "✅":  { "name": "ACK",           "direction": "Any → Any",          "meaning": "Positive acknowledgement — packet received and understood" },
+      "❌":  { "name": "NACK",          "direction": "Any → Any",          "meaning": "Negative acknowledgement — packet rejected or unprocessable" },
+      "🔁":  { "name": "BATON_PASS",    "direction": "Holder → Next",      "meaning": "Transferring baton; recipient SHOULD begin transmit" },
+      "🙋":  { "name": "BATON_REQUEST","direction": "Any → Holder",      "meaning": "Requesting baton next" },
+      "🛑":  { "name": "ALL_STOP",      "direction": "Any → All",          "meaning": "Emergency halt; all agents enter backoff immediately (UNCONDITIONAL)" },
+      "▶️": { "name": "RESUME",        "direction": "Holder → All",      "meaning": "Session resuming; agents return to ACTIVE" },
+      "👤":  { "name": "HUMAN_BATON",   "direction": "System → All",      "meaning": "Human operator now holds baton; posted automatically by harness on HUMAN_OVERRIDE" },
+      "🔒":  { "name": "BLP_IN_POLICY","direction": "Orchestrator → Agent","meaning": "Agreement block validated; agent is IN POLICY; full AdmissionDecision in flight" },
+      "🚫":  { "name": "BLP_DENIED",    "direction": "Orchestrator → Agent","meaning": "Admission denied; agent MUST enter listen-only mode" },
+      "⚠️": { "name": "BLP_VIOLATION", "direction": "Any → All",          "meaning": "BLP rule violated; session halting (UNCONDITIONAL)" },
+      "💬":  { "name": "WORKING",       "direction": "Agent → All",        "meaning": "Baton held; actively processing" },
+      "⏳":  { "name": "PENDING",       "direction": "Agent → All",        "meaning": "Waiting / in backoff" },
+      "📎":  { "name": "ARTIFACT_READY","direction": "Agent → All",        "meaning": "Artifact attached or available at announced URI" },
+      "🧠":  { "name": "MEMORY_REQUEST","direction": "Agent → Agent",      "meaning": "MemoryProxyRequest incoming" },
+      "🏁":  { "name": "SESSION_CLOSE", "direction": "Orchestrator → All", "meaning": "Session closing; evict and release" }
+    },
+    "normative_rules": [
+      "Emoji reactions are supplementary signals — they do not replace DA2A content-bearing packets.",
+      "🛑 ALL_STOP and ⚠️ BLP_VIOLATION have unconditional halt semantics — any agent MAY post them; all MUST honour them.",
+      "🔒 BLP_IN_POLICY MAY be posted before full AdmissionDecision delivery to signal acceptance.",
+      "👤 HUMAN_BATON MUST be posted automatically by the harness on any HUMAN_OVERRIDE state transition.",
+      "Harnesses MUST monitor reactions on baton-reference messages for the entire session lifetime.",
+      "On 🛑 ALL_STOP: all agents MUST enter backoff within one Discord round-trip. No transmit until ▶️ RESUME."
+    ]
+  },
+
+  // ---------------------------------------------------------------------------
+  // SECTION 3 — BLP Access Rules (normative)
   // ---------------------------------------------------------------------------
   "blp_rules": {
     "simple_security": {
-      "rule":       "Agent MUST NOT read above its clearance.",
-      "da2a":       "Agent MUST NOT process/forward packets from sessions with a higher ClearanceLevel."
+      "rule": "Agent MUST NOT read above its clearance (no read-up).",
+      "da2a": "Agent MUST NOT process or forward packets from sessions with a higher ClearanceLevel than its granted clearance."
     },
     "star_property": {
-      "rule":       "Agent MUST NOT write below its clearance.",
-      "da2a":       "Agent MUST NOT send packets that expose higher-clearance content to lower-clearance channels or agents."
+      "rule": "Agent MUST NOT write below its clearance (no write-down).",
+      "da2a": "Agent MUST NOT send packets that expose higher-clearance content to lower-clearance channels or agents."
     },
     "discretionary": {
-      "rule":       "Access further governed by an explicit access matrix.",
-      "da2a":       "Each session defines an AccessMatrix of permitted PacketIntents per agent."
+      "rule": "Access further governed by an explicit access matrix.",
+      "da2a": "Each session defines an AccessMatrix of permitted PacketIntents per agent. Default before AdmissionDecision: [\"ack\",\"nack\"] only."
     },
     "tranquility": {
-      "rule":       "Clearance MUST NOT change while the session is active.",
-      "da2a":       "ClearanceLevel assigned at admission is IMMUTABLE. Re-admission required for any level change."
+      "rule": "Clearance MUST NOT change while the session is active.",
+      "da2a": "ClearanceLevel assigned at admission is IMMUTABLE. Re-admission required for any level change."
     },
     "strong_star": {
-      "rule":       "Optional — agents may only write to objects at the same level.",
-      "da2a":       "Enabled via SessionPolicy.strong_star_property. No write-up or write-down when active."
+      "rule": "Optional — agents may only write to objects at the same level.",
+      "da2a": "Enabled via SessionPolicy.strong_star_property. No write-up or write-down when active."
+    },
+    "in_policy_pre_decision": {
+      "rule": "Agent is IN POLICY from the moment AdmissionRequest is submitted with all agreement fields true.",
+      "da2a": "BLP rules (Simple Security, Star, Tranquility) apply from the first transmitted byte. No grace period outside policy. Default discretionary posture: [\"ack\",\"nack\"] until AccessMatrix delivered."
     }
   },
 
   // ---------------------------------------------------------------------------
-  // SECTION 3 — Admission Structs
+  // SECTION 4 — Admission Structs
   // ---------------------------------------------------------------------------
   "structs": {
 
-    // Sent by joining agent — MUST include all four agreement fields set to true.
+    // Sent by joining agent. ALL four agreement fields MUST be true.
+    // Submitting this packet declares the agent IN POLICY immediately.
     "AdmissionRequest": {
       "agent_id":            "AgentId",
       "conversation_hash":   "ConversationHash",
@@ -82,17 +136,19 @@
       "capabilities":        "string[]",
       "vocabulary_sha256":   "Sha256|null",
       "agreement": {
-        "blp_model_version":     "string",              // MUST be current version
-        "simple_security":       "boolean",             // MUST be true
-        "star_property":         "boolean",             // MUST be true
-        "tranquility":           "boolean",             // MUST be true
-        "discretionary":         "boolean",             // MUST be true
-        "violation_consequence": "string",              // MUST be \"IMMEDIATE_HALT_BATON_TO_HUMAN\"
-        "signature":             "string"               // \"<agent_id>:agrees:<iso-timestamp>\"
+        "blp_model_version":     "string",    // MUST equal current schema version
+        "simple_security":       "boolean",   // MUST be true
+        "star_property":         "boolean",   // MUST be true
+        "tranquility":           "boolean",   // MUST be true
+        "discretionary":         "boolean",   // MUST be true
+        "in_policy_from_request":"boolean",   // MUST be true — acknowledges pre-decision in-policy rule
+        "violation_consequence": "string",    // MUST be \"IMMEDIATE_HALT_BATON_TO_HUMAN\"
+        "signature":             "string"     // \"<agent_id>:agrees:<iso-timestamp>\"
       }
     },
 
     // Sent by orchestrator (baton holder) in response to AdmissionRequest.
+    // Orchestrator posts 🔒 emoji on AdmissionRequest message before sending this.
     "AdmissionDecision": {
       "agent_id":            "AgentId",
       "conversation_hash":   "ConversationHash",
@@ -104,13 +160,15 @@
     },
 
     // Per-agent, per-intent permission map (discretionary property).
+    // Delivered in AdmissionDecision.access_matrix_patch.
     "AccessMatrix": {
       "type":        "object",
       "description": "AgentId → list of permitted PacketIntents",
       "example": {
         "agent.opencode":   ["handoff","ask","result","ack","nack","memory_proxy_request","cache_ref"],
         "agent.perplexity": ["ask","result","ack","nack"],
-        "agent.newjoiner":  ["ack","nack"]
+        "agent.newjoiner":  ["ack","nack"],
+        "_default_pre_admission": ["ack","nack"]  // Applied until full AccessMatrix arrives
       }
     },
 
@@ -118,29 +176,31 @@
     "ViolationNotice": {
       "conversation_hash":  "ConversationHash",
       "violating_agent":    "AgentId",
-      "rule_violated":      ["simple_security","star_property","tranquility","discretionary"],
+      "rule_violated":      ["simple_security","star_property","tranquility","discretionary","in_policy_pre_decision"],
       "description":        "string",
       "evidence_packet_id": "PacketId",
       "effect": {
         "session_state":   "HUMAN_OVERRIDE",
         "baton_seized_by": "human.operator",
-        "all_agents_halt": true
+        "all_agents_halt": true,
+        "emoji_posted":    "⚠️ + 👤"
       }
     },
 
-    // Immutable session policy — broadcast at session open.
+    // Immutable session policy — broadcast at session open, referenced for lifetime.
     "SessionPolicy": {
-      "conversation_hash":           "ConversationHash",
-      "default_clearance":           "ClearanceLevel",
-      "strong_star_property":        "boolean",
-      "require_all_agents_admitted": "boolean",         // default true
-      "violation_action":            "IMMEDIATE_HALT_BATON_TO_HUMAN",
-      "access_matrix":               "AccessMatrix"
+      "conversation_hash":             "ConversationHash",
+      "default_clearance":             "ClearanceLevel",
+      "strong_star_property":          "boolean",
+      "require_all_agents_admitted":   "boolean",   // default true
+      "in_policy_pre_decision_active": "boolean",   // default true
+      "violation_action":              "IMMEDIATE_HALT_BATON_TO_HUMAN",
+      "access_matrix":                 "AccessMatrix"
     }
   },
 
   // ---------------------------------------------------------------------------
-  // SECTION 4 — Admission RPC Methods
+  // SECTION 5 — Admission RPC Methods
   // ---------------------------------------------------------------------------
   "interfaces": {
     "admission": [
@@ -154,39 +214,50 @@
   },
 
   // ---------------------------------------------------------------------------
-  // SECTION 5 — Admission State Machine
+  // SECTION 6 — Admission State Machine
+  //
+  // NOTE: Agents are IN POLICY from PENDING_ADMISSION onward (pre-decision rule).
+  // OBSERVING_MEDIUM is the only state where BLP rules are not yet active.
   // ---------------------------------------------------------------------------
   "admission_state_machine": {
     "states": [
-      "PENDING_ADMISSION",  // Joined channel; no agreement sent yet
-      "AGREEMENT_SENT",     // AdmissionRequest transmitted; awaiting decision
-      "ADMITTED",           // Orchestrator granted admission
-      "DENIED",             // Orchestrator denied; listen-only, no transmit
-      "VIOLATION_HALT"      // BLP violation; session frozen; human holds baton
+      "OBSERVING_MEDIUM",  // In channel; watching; no intent to participate yet; BLP not active
+      "PENDING_ADMISSION", // Decided to join; IN POLICY from here; BLP active; only ack/nack
+      "AGREEMENT_SENT",    // AdmissionRequest transmitted; awaiting decision; BLP fully active
+      "ADMITTED",          // Orchestrator granted; full AccessMatrix active
+      "DENIED",            // Orchestrator denied; listen-only; MUST NOT transmit
+      "VIOLATION_HALT"     // BLP violation; session frozen; human holds baton
     ],
+    "in_policy_boundary": "PENDING_ADMISSION",
     "transitions": [
-      { "from": "PENDING_ADMISSION", "to": "AGREEMENT_SENT", "trigger": "admission.request sent" },
-      { "from": "AGREEMENT_SENT",    "to": "ADMITTED",       "trigger": "admission.grant received" },
-      { "from": "AGREEMENT_SENT",    "to": "DENIED",         "trigger": "admission.deny received" },
-      { "from": "ADMITTED",          "to": "VIOLATION_HALT", "trigger": "admission.violation.halt broadcast" },
-      { "from": "ANY",               "to": "VIOLATION_HALT", "trigger": "BLP rule violated by any admitted agent" }
+      { "from": "OBSERVING_MEDIUM", "to": "PENDING_ADMISSION", "trigger": "agent decides to participate",         "emoji": null },
+      { "from": "PENDING_ADMISSION","to": "AGREEMENT_SENT",    "trigger": "admission.request sent",               "emoji": null },
+      { "from": "AGREEMENT_SENT",   "to": "ADMITTED",          "trigger": "admission.grant received",             "emoji": "🔒 (orchestrator)" },
+      { "from": "AGREEMENT_SENT",   "to": "DENIED",            "trigger": "admission.deny received",              "emoji": "🚫 (orchestrator)" },
+      { "from": "ADMITTED",         "to": "VIOLATION_HALT",    "trigger": "any BLP rule violated by admitted agent","emoji": "⚠️ + 👤 (harness)" },
+      { "from": "ANY",              "to": "VIOLATION_HALT",    "trigger": "admission.violation.halt broadcast",    "emoji": "⚠️ + 👤 (harness)" }
     ],
-    "conversation_continuation_rule": "The conversation MUST NOT advance past L1 state=OPENING until ALL expected agents are in ADMITTED state."
+    "conversation_continuation_rule": "The conversation MUST NOT advance past L1 protocol_state=OPENING until ALL expected agents are in ADMITTED state."
   },
 
   // ---------------------------------------------------------------------------
-  // SECTION 6 — Normative Rules
+  // SECTION 7 — Normative Rules
   // ---------------------------------------------------------------------------
   "normative_rules": [
     "Every agent MUST send AdmissionRequest before transmitting any non-admission packet.",
-    "AdmissionRequest.agreement MUST have simple_security=true, star_property=true, tranquility=true, discretionary=true.",
+    "AdmissionRequest.agreement MUST have simple_security=true, star_property=true, tranquility=true, discretionary=true, in_policy_from_request=true.",
     "AdmissionRequest.agreement.violation_consequence MUST equal 'IMMEDIATE_HALT_BATON_TO_HUMAN'.",
+    "An agent is IN POLICY from the moment AdmissionRequest is submitted. BLP rules are active before AdmissionDecision arrives.",
+    "Default discretionary posture before AdmissionDecision: [\"ack\",\"nack\"] only.",
     "Conversation MUST NOT advance past OPENING until all expected agents are ADMITTED.",
     "A DENIED agent MUST enter listen-only mode and MUST NOT transmit.",
     "On any BLP violation, admission.violation.halt MUST be broadcast immediately.",
-    "On violation.halt: session→HUMAN_OVERRIDE; all agents→backoff; human holds baton unconditionally.",
+    "On violation.halt: session→HUMAN_OVERRIDE; all agents→backoff; human holds baton unconditionally; ⚠️ + 👤 emoji posted.",
     "ClearanceLevel is IMMUTABLE for the session lifetime (tranquility principle).",
     "Agent MUST NOT read packets from sessions above its granted ClearanceLevel.",
-    "Agent MUST NOT send packets exposing higher-clearance content to lower-clearance channels or agents."
+    "Agent MUST NOT send packets exposing higher-clearance content to lower-clearance channels or agents.",
+    "All admitted agents MUST recognise and honour the canonical emoji signal vocabulary (Section 2).",
+    "🛑 ALL_STOP and ⚠️ BLP_VIOLATION emoji reactions have unconditional halt semantics — any agent MAY post; all MUST honour.",
+    "Harnesses MUST monitor reactions on baton-reference messages for the full session lifetime."
   ]
 }
