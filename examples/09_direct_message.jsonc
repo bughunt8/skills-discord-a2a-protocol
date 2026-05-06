@@ -1,0 +1,47 @@
+{
+  // Example 09: Direct Message (Unicast via Discord DM)
+  // Interface: da2a.message.dm
+  // Direction: OrchestratorBot --> DataPipelineBot (Discord DM channel)
+  //
+  // v1.1.0 — Preferred unicast delivery pattern.
+  // The orchestrator calls create_dm(target_snowflake) first,
+  // then sends this envelope in the DM channel.
+  // "to" is SEMANTIC METADATA only — Discord DM already routes it.
+
+  "da2a": "1.1.0",
+  "msg_id": "550e8400-e29b-41d4-a716-446655440091",
+  "timestamp": "2026-05-06T14:00:00Z",
+  "from": "111000111000111001",
+  "to":   "222000222000222002",
+  "channel_id": "990000000000000099",
+  "priority": "high",
+  "ttl_seconds": 120,
+  "trace_id": "550e8400-e29b-41d4-a716-trace0000091",
+  "delivery": {
+    "mode": "discord_dm",
+    "discord_msg_id": null,
+    "fallback_reason": null,
+    "attempted_modes": ["discord_dm"]
+  },
+  "payload": {
+    "jsonrpc": "2.0",
+    "id": "dm-task-091",
+    "method": "da2a.message.dm",
+    "params": {
+      "to": "222000222000222002",
+      "content": {
+        "parts": [
+          {
+            "type": "text/markdown",
+            "content": "**Task Assignment** \ud83c\udfaf\n\nPlease ingest the following CSV and return schema + quality score.\n\n> Priority: **high** | Deadline: `2026-05-06T16:00:00Z`"
+          },
+          {
+            "type": "application/json",
+            "title": "TaskSpec",
+            "content": "{\"task_id\":\"550e8400-e29b-41d4-a716-task00000091\",\"skill_id\":\"ingest_csv\",\"priority\":\"high\",\"idempotency_key\":\"run-2026-05-06-batch-7\"}"
+          }
+        ]
+      }
+    }
+  }
+}

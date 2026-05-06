@@ -1,581 +1,330 @@
-# DA2A — Discord Agent-to-Agent Communication Protocol
+<div align="center">
 
-> **Version 1.0.0** | IDL + JSON-RPC 2.0 | Transport: Discord Gateway
+# 🤖 DA2A
+### Discord Agent-to-Agent Communication Protocol
 
-A rigorous, efficient agent-to-agent (A2A) communication protocol for multi-agent systems operating via Discord channels. DA2A combines **Interface Description Language (IDL)** type safety with **JSON-RPC 2.0** message framing and **JSONC** human-readable annotations — purpose-built for orchestrated AI agent fleets running on Discord.
+**Structured. Typed. Real-time. Built for AI agent fleets on Discord.**
 
----
+[![Version](https://img.shields.io/badge/version-1.1.0-blue?style=flat-square)](https://github.com/bughunt8/skills-discord-a2a-protocol/releases)
+[![Protocol](https://img.shields.io/badge/protocol-JSON--RPC%202.0-green?style=flat-square)](https://www.jsonrpc.org/specification)
+[![IDL](https://img.shields.io/badge/schema-IDL%20%2B%20JSONC-orange?style=flat-square)](schema/protocol.idl.jsonc)
+[![License](https://img.shields.io/badge/license-MIT-purple?style=flat-square)](LICENSE)
+[![Discord](https://img.shields.io/badge/transport-Discord%20Gateway-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.com/developers/docs/intro)
 
-## Table of Contents
-
-1. [Overview](#overview)
-2. [Architecture](#architecture)
-3. [Protocol Design Principles](#protocol-design-principles)
-4. [Repository Structure](#repository-structure)
-5. [Core Concepts](#core-concepts)
-6. [Interface Reference](#interface-reference)
-7. [Discord Bot Permissions](#discord-bot-permissions)
-8. [Message Lifecycle](#message-lifecycle)
-9. [Error Handling](#error-handling)
-10. [Transport Constraints](#transport-constraints)
-11. [Wire Format Rules](#wire-format-rules)
-12. [Quick Start](#quick-start)
-13. [Implementation Guide](#implementation-guide)
-14. [Security Considerations](#security-considerations)
-15. [Versioning & Compatibility](#versioning--compatibility)
-16. [Glossary](#glossary)
+</div>
 
 ---
 
-## Overview
-
-DA2A is a **structured communications protocol** for multiple autonomous AI agents communicating within a shared Discord channel. It solves the core problem of agent coordination: agents need to **discover** each other, **delegate tasks**, **stream progress**, and **exchange rich structured data** — all within Discord’s messaging platform.
-
-### Why DA2A?
-
-| Problem | DA2A Solution |
-|---------|______________|
-| Unstructured agent messages are ambiguous | IDL-defined types with strict field contracts |
-| Agents can’t discover each other’s capabilities | `AgentCard` with `SkillDef[]` published on connect |
-| No correlation between requests and responses | JSON-RPC 2.0 `id` + `msg_id`/`reply_to_msg` |
-| Async tasks have no lifecycle visibility | `ProgressEvent` notifications + `TaskState` FSM |
-| Rich content (tables, code, JSON) is unformatted | `RichContent` multipart with `ContentType` discriminators |
-| No shared conversation state | `Session` interface with RFC 7396 context patching |
-| Bots have inconsistent permissions | `docs/discord-permissions.jsonc` with bitfield-precise role specs |
-
-### Standards Alignment
-
-| Standard | How DA2A Uses It |
-|----------|_________________|
-| **JSON-RPC 2.0** ([jsonrpc.org](https://www.jsonrpc.org/specification)) | Message framing, error codes, request/response correlation |
-| **IDL principles** (JIDL, CORBA, OpenAPI) | Typed interface definitions with `@doc`, `@id`, `@notification`, `@idempotent` |
-| **A2A Protocol** ([a2a-protocol.org](https://a2a-protocol.org)) | AgentCard discovery model, SkillDef structure |
-| **JSONC** ([jsonc.org](https://jsonc.org)) | C-style `//` and `/* */` comments in `.jsonc` files |
-| **RFC 7396** | JSON Merge Patch for session context updates |
-| **CommonMark** | Markdown standard for `text/markdown` content parts (Discord-native) |
+> **DA2A** is the missing communication layer for multi-agent Discord bots — a rigorous wire protocol that lets AI agents **discover** each other, **delegate tasks**, **stream progress**, and **exchange rich structured data**, all through Discord's native delivery mechanisms.
 
 ---
 
-## Architecture
+## 🧠 Why DA2A?
+
+Today's AI bots post raw messages. DA2A agents speak a **contract**.
+
+| Without DA2A | With DA2A |
+|---|---|
+| Bots post free-text, parsing is guesswork | Every message is a typed `MessageEnvelope` |
+| No way to know what other bots can do | `AgentCard` + `SkillDef[]` published on startup |
+| Requests and replies are uncorrelated | JSON-RPC 2.0 `id` + Discord `message.reply()` threading |
+| Long tasks block or go silent | `ProgressEvent` notifications with `pct` streaming |
+| Rich data (tables, code, JSON) arrives mangled | `RichContent` multipart with 7 typed `ContentType`s |
+| Unicast requires custom routing logic | Discord DM preferred; envelope `to` is audit metadata |
+| Bot permissions are guesswork | Bitfield-precise roles in `docs/discord-permissions.jsonc` |
+
+---
+
+## 📐 Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                       Discord Guild (Server)                      │
-│                                                                   │
-│  ┌─────────────────┐    DA2A Channel: #agent-bus                  │
-│  │ OrchestratorBot │ ◄─────────────────────────────────────┐  │
-│  │ role:orchestrator│                                           │  │
-│  └────────╌────────┘    ┌──────────────────────────────────── ┴─┐  │
-│           │             │  MessageEnvelope {                       │  │
-│    Submit │             │    da2a: "1.0.0",                        │  │
-│    Task   │             │    payload: { jsonrpc: "2.0",            │  │
-│           ▼             │      method: "da2a.task.submit",         │  │
-│  ┌─────────────────┐    │      params: { spec: TaskSpec }          │  │
-│  │ DataPipelineBot │ ───┘    }                                     │  │
-│  │  role: worker   │                                              │  │
-│  └────────╌────────┘                                              │  │
-│           │  Broadcasts ProgressEvent notifications              │  │
-│           │  Broadcasts TaskResult on completion                 │  │
-│           ▼                                                       │  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │  │
-│  │ CodeReview   │  │  Validator   │  │   Observer   │           │  │
-│  │ role: worker │  │role:validator│  │role: observer│           │  │
-│  └──────────────┘  └──────────────┘  └──────────────┘           │  │
-└──────────────────────────────────────────────────────────────────┘
-
-Every arrow = a serialized MessageEnvelope containing one RpcFrame
+┌──────────────────────────────── Discord Guild ────────────────────────────────┐
+│                                                                                │
+│   ┌──────────────────┐    Discord DM (preferred unicast)                       │
+│   │  OrchestratorBot │ ◄─────────────────────────────────────────────────────┐ │
+│   │ role:orchestrator│                                                        │ │
+│   └────────┬─────────┘    da2a.task.submit                                    │ │
+│            │  (via Discord DM if dm_enabled, else channel)                    │ │
+│            ▼                                                                   │ │
+│   ┌──────────────────┐  discord.reply() → da2a.task.progress ────────────────┘ │
+│   │  DataPipelineBot │  discord.reply() → da2a.task.complete                   │
+│   │  role: worker    │                                                          │
+│   └──────────────────┘                                                          │
+│                                                                                │
+│   #agent-bus channel  (broadcast notifications + fallback unicast)             │
+│   ┌────────────┐   ┌────────────┐   ┌────────────┐   ┌────────────┐           │
+│   │ CodeReview │   │ Validator  │   │  Observer  │   │  Notifier  │           │
+│   │  worker    │   │ validator  │   │  observer  │   │  notifier  │           │
+│   └────────────┘   └────────────┘   └────────────┘   └────────────┘           │
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Agent Roles
-
-| Role | Responsibility | Typical Bot |
-|------|_______________|_____________|
-| `orchestrator` | Workflow planning, task routing, session management | Chief-of-Staff / Planner |
-| `worker` | Execute skills, stream progress, return results | DataPipelineBot, CodeReviewBot |
-| `observer` | Read-only monitoring, logging, alerting | MetricsBot, AuditBot |
-| `validator` | Quality gates, approval/rejection of task outputs | QABot, ComplianceBot |
-| `notifier` | Publish announcements, summaries, alerts | ReportBot, AlertBot |
+**Discord owns WHERE and HOW. DA2A owns WHAT and WHY.**
 
 ---
 
-## Protocol Design Principles
+## ✨ Key Features
 
-1. **Every message is a `MessageEnvelope`** — All channel messages MUST be valid JSONC-encoded `MessageEnvelope` objects. No raw text.
-2. **Strict JSON-RPC 2.0 payload framing** — Request/Response/Notification enforced by presence or absence of `id`.
-3. **IDL-first type system** — All types declared in `schema/protocol.idl.jsonc` before use. No ad-hoc field invention.
-4. **Deduplication by design** — `msg_id` (UUID v4) on every message; `idempotency_key` on tasks.
-5. **Async-native** — Long tasks use Notification-pattern progress events; `da2a.task.get_result` is the polling fallback.
-6. **Rich content as first-class** — `RichContent` with `ContentPart[]` supports Markdown, code, tables, JSON, and Discord embeds in one message.
-7. **Capability-driven routing** — `AgentCard.skills[].description` (LLM-parseable markdown) + `CapabilityTag[]` for dynamic agent selection.
-8. **Fail loudly** — All errors use DA2A-extended JSON-RPC error codes. Agents MUST NOT swallow errors silently.
+### 🔌 IDL-First Type System
+All types, structs, and interfaces declared in `schema/protocol.idl.jsonc` — 13 structs, 4 interfaces, 20+ primitive aliases. No ad-hoc fields.
+
+### 📨 JSON-RPC 2.0 Framing
+Every message is a `MessageEnvelope` wrapping a strict JSON-RPC 2.0 `RpcFrame`. Request / Response / Notification semantics enforced by presence or absence of `id`.
+
+### 🎯 Discord-Native Addressing (v1.1.0)
+Agent-to-agent delivery uses Discord's own mechanisms in priority order: **DM → reply() → @mention → channel fallback**. The envelope `to` and `reply_to_msg` fields are semantic metadata for audit logs, not routing instructions.
+
+### 🃏 AgentCard Discovery
+Agents publish a machine-readable `AgentCard` on startup with `SkillDef[]`, JSON Schema contracts, and `dm_enabled` flag. Orchestrators use these for dynamic routing and delivery mode selection.
+
+### 🖼️ RichContent Multipart
+A single message carries Markdown, JSON, syntax-highlighted code, tables, and Discord embeds — all typed and ordered.
+
+### ⚡ Async Task Lifecycle
+`submitted → queued → running → completed | failed | cancelled | timed_out` with streaming `ProgressEvent` notifications.
+
+### 🛡️ Typed Error Codes
+13 DA2A-specific JSON-RPC error codes (`-32000` to `-32012`) including `DM_UNAVAILABLE` for graceful delivery fallback.
 
 ---
 
-## Repository Structure
+## 📁 Repository Layout
 
 ```
-discord-a2a-protocol/
+skills-discord-a2a-protocol/
+│
+├── AGENTS.md                              ← AI agent instructions for this repo
 │
 ├── schema/
-│   └── protocol.idl.jsonc            # Canonical IDL: all types, structs, interfaces
+│   └── protocol.idl.jsonc                ← Canonical IDL (types, structs, interfaces)
 │
 ├── examples/
-│   ├── 01_register_request.jsonc     # da2a.registry.register → Request
-│   ├── 02_register_response.jsonc    # da2a.registry.register → Response
-│   ├── 03_task_submit.jsonc          # da2a.task.submit with multipart RichContent
-│   ├── 04_task_progress_notification.jsonc   # Async progress notification
-│   ├── 05_task_complete_notification.jsonc   # Task completion with artifacts
-│   ├── 06_error_response.jsonc       # JSON-RPC 2.0 error (SKILL_NOT_FOUND)
-│   ├── 07_heartbeat_notification.jsonc       # Liveness heartbeat
-│   └── 08_rich_message_broadcast.jsonc       # Multipart broadcast (MD + table + code)
+│   ├── 01_register_request.jsonc
+│   ├── 02_register_response.jsonc
+│   ├── 03_task_submit.jsonc
+│   ├── 04_task_progress_notification.jsonc
+│   ├── 05_task_complete_notification.jsonc
+│   ├── 06_error_response.jsonc
+│   ├── 07_heartbeat_notification.jsonc
+│   ├── 08_rich_message_broadcast.jsonc
+│   ├── 09_direct_message.jsonc           ← NEW v1.1.0: Discord DM unicast
+│   └── 10_discord_reply.jsonc            ← NEW v1.1.0: discord.reply() threading
 │
 ├── docs/
-│   └── discord-permissions.jsonc     # Bot intents, permissions, OAuth2 URLs
+│   └── discord-permissions.jsonc
 │
-└── README.md                         # This file
+└── README.md
 ```
 
 ---
 
-## Core Concepts
+## 📬 Addressing Model (v1.1.0)
+
+DA2A is **Discord-native**. Delivery uses Discord's own mechanisms before falling back to envelope fields.
+
+| Priority | Mode | When | How |
+|:---:|---|---|---|
+| **1** | `discord_dm` | Unicast, `dm_enabled: true` | `create_dm(bot_id)` → `send(envelope)` |
+| **2** | `discord_reply` | In-channel response | `original_msg.reply(envelope)` |
+| **3** | `discord_mention` | Soft notify | `channel.send(f'<@bot_id> {envelope}')` |
+| **4** | `envelope_to_field` | Fallback / audit / replay | `channel.send(envelope)`, filter on `envelope.to` |
+
+> **Key insight:** `MessageEnvelope.to` and `.reply_to_msg` are **semantic metadata** — they record intent and lineage for audit logs and replay systems. Discord handles actual message routing.
+
+---
+
+## 🔑 Core Types
 
 ### MessageEnvelope
 
-The outermost wrapper for every DA2A channel message. Provides routing, correlation, flow control, observability, and embeds one `RpcFrame`.
-
 ```jsonc
 {
-  "da2a":         "1.0.0",                   // Protocol version (REQUIRED)
-  "msg_id":       "<uuid-v4>",               // Deduplication key (REQUIRED)
-  "session_id":   "<uuid-v4>",               // Conversation grouping (optional)
-  "timestamp":    "2026-05-06T12:00:00Z",    // ISO 8601 UTC (REQUIRED)
-  "from":         "<discord-snowflake>",     // Sender bot ID (REQUIRED)
-  "to":           "<discord-snowflake>",     // Target bot ID (omit = broadcast)
-  "reply_to_msg": "<uuid-v4>",               // Async reply correlation
-  "channel_id":   "<discord-snowflake>",     // Discord channel (REQUIRED)
-  "priority":     "normal",                  // critical|high|normal|low|background
-  "ttl_seconds":  60,                        // Drop if age > TTL
-  "trace_id":     "<uuid-v4>",               // OpenTelemetry trace ID
-  "payload":      { /* RpcFrame */ }         // JSON-RPC 2.0 frame (REQUIRED)
+  "da2a":         "1.1.0",
+  "msg_id":       "<uuid-v4>",
+  "timestamp":    "2026-05-06T22:00:00Z",
+  "from":         "<snowflake>",
+  "to":           "<snowflake>",    // semantic metadata — not a routing instruction
+  "channel_id":   "<snowflake>",
+  "priority":     "normal",
+  "ttl_seconds":  60,
+  "delivery": {
+    "mode": "discord_dm",           // actual Discord mechanism used
+    "discord_msg_id": "<snowflake>",
+    "attempted_modes": ["discord_dm"]
+  },
+  "payload": { /* RpcFrame */ }
 }
 ```
-
-**Rules:**
-- `msg_id` MUST be a fresh UUID v4 for every new outbound message.
-- Broadcasts omit `to`. All channel-joined agents MUST process them.
-- Messages older than `ttl_seconds` from `timestamp` MUST be silently dropped.
-
----
 
 ### RpcFrame (JSON-RPC 2.0)
 
-| Frame Type | `id` present? | `method` present? | `result`/`error` present? |
-|___________|:---:|:---:|:---:|
+| Frame Type | `id` | `method` | `result`/`error` |
+|---|:---:|:---:|:---:|
 | **Request** | ✅ | ✅ | ❌ |
-| **Response (success)** | ✅ | ❌ | ✅ `result` |
-| **Response (error)** | ✅ | ❌ | ✅ `error` |
+| **Response (ok)** | ✅ | ❌ | ✅ `result` |
+| **Response (err)** | ✅ | ❌ | ✅ `error` |
 | **Notification** | ❌ | ✅ | ❌ |
 
-```jsonc
-// Request
-{ "jsonrpc": "2.0", "id": "req-001", "method": "da2a.task.submit", "params": {...} }
-
-// Success Response
-{ "jsonrpc": "2.0", "id": "req-001", "result": {...} }
-
-// Error Response
-{ "jsonrpc": "2.0", "id": "req-001", "error": { "code": -32001, "message": "..." } }
-
-// Notification — fire-and-forget, no response
-{ "jsonrpc": "2.0", "method": "da2a.task.progress", "params": {...} }
-```
-
 ---
 
-### AgentCard
+## 🔌 Interface Reference
 
-Machine-readable identity document published via `da2a.registry.register` on startup. Key fields:
-
-| Field | Type | Purpose |
-|_______|______|_________|
-| `agent_id` | `AgentId` | Discord Snowflake Bot User ID |
-| `description` | `markdown` | CommonMark — parsed by LLM orchestrators for routing |
-| `role` | `AgentRole` | `orchestrator` / `worker` / `observer` / `validator` / `notifier` |
-| `capabilities` | `CapabilityTag[]` | Searchable tags (e.g. `["etl", "data-quality"]`) |
-| `skills` | `SkillDef[]` | Callable methods with JSON Schema contracts |
-| `max_concurrency` | `uint32` | Max parallel tasks; `0` = unlimited |
-
----
-
-### RichContent & ContentPart
-
-`RichContent` is a **multipart payload**. Each `ContentPart` uses a `ContentType` discriminator:
-
-| `ContentType` | Use case | Discord rendering |
-|______________|__________|__________________|
-| `text/plain` | Unformatted text | Plain |
-| `text/markdown` | Narrative, summaries | CommonMark rendered |
-| `application/json` | Structured data | Inline JSON string |
-| `text/code` | Source code | Fenced block (syntax highlighted) |
-| `text/table` | Tabular data | Markdown table |
-| `application/embed` | Discord embeds | Rich embed card |
-| `application/error` | Error detail | Error-formatted text |
-
-> ⚠️ Discord caps messages at **2,000 characters** and embeds at **6,000 characters**. Use `content_url` to reference externally hosted large payloads. Violation returns `-32011` `CONTENT_TOO_LARGE`.
-
----
-
-### TaskSpec & TaskResult
-
-**TaskSpec** is the input contract for delegating work:
-
-```jsonc
-{
-  "task_id":         "<uuid>",
-  "skill_id":        "ingest_csv",
-  "input":           { /* RichContent */ },
-  "context":         { ... },
-  "deadline_utc":    "2026-05-06T13:00:00Z",
-  "idempotency_key": "run-q1-001"
-}
-```
-
-**Task State Machine:**
-```
-submitted ──► queued ──► running ──► completed
-               │             │
-               └─────────────┴──► failed | cancelled | timed_out | awaiting_input
-```
-
-**TaskResult** carries `state`, `output` (RichContent), `artifacts[]`, `duration_ms`, and `tokens_used`.
-
----
-
-### Sessions
-
-Sessions group messages into a logical workflow context via a shared `context` object. Patched using RFC 7396 JSON Merge Patch — `null` values delete keys. Default TTL is 3600 seconds.
-
----
-
-## Interface Reference
-
-### da2a.registry
-
+### `da2a.registry`
 | Method | Type | Description |
-|________|______|_____________|
-| `da2a.registry.register` | Request | Publish AgentCard; receive peer cards |
-| `da2a.registry.deregister` | Request | Graceful shutdown announcement |
-| `da2a.registry.query` | Request | Discover agents by capability/role/skill |
-| `da2a.registry.heartbeat` | **Notification** | 30s liveness signal with load metrics |
+|---|---|---|
+| `da2a.registry.register` | Request | Publish `AgentCard` with `dm_enabled`; receive peers |
+| `da2a.registry.deregister` | Request | Graceful shutdown |
+| `da2a.registry.query` | Request | Find agents; response includes `dm_enabled` for delivery routing |
+| `da2a.registry.heartbeat` | Notification | 30s liveness signal |
 
-**Heartbeat SLA:** Agents silent for more than `2 × ttl_seconds` are removed from the registry.
-
----
-
-### da2a.task
-
+### `da2a.task`
 | Method | Type | Description |
-|________|______|_____________|
-| `da2a.task.submit` | Request (idempotent) | Dispatch TaskSpec to worker |
-| `da2a.task.get_result` | Request | Poll for current TaskResult |
-| `da2a.task.cancel` | Request | Best-effort cancellation |
-| `da2a.task.progress` | **Notification** | Streaming progress with `pct` and metrics |
-| `da2a.task.complete` | **Notification** | Final TaskResult broadcast |
+|---|---|---|
+| `da2a.task.submit` | Request (idempotent) | Dispatch via DM if `dm_enabled`, else channel |
+| `da2a.task.get_result` | Request | Poll |
+| `da2a.task.cancel` | Request | Best-effort cancel |
+| `da2a.task.progress` | Notification | Stream via `discord_reply` on original submit |
+| `da2a.task.complete` | Notification | Final result via `discord_reply` |
 
----
-
-### da2a.message
-
+### `da2a.message` (v1.1.0 expanded)
 | Method | Type | Description |
-|________|______|_____________|
-| `da2a.message.send` | Request | Rich multipart message (directed or broadcast) |
-| `da2a.message.react` | **Notification** | Emoji ACK on a Discord message |
+|---|---|---|
+| `da2a.message.send` | Request | Channel send with `delivery_mode` param |
+| `da2a.message.react` | Notification | Emoji ACK |
+| `da2a.message.dm` | Request | **NEW** — Preferred unicast via Discord DM |
+| `da2a.message.reply` | Request | **NEW** — Preferred in-thread via `discord.reply()` |
 
 **Emoji ACK convention:** `✅` accept · `🔄` processing · `❌` reject · `⏸` paused · `📦` artifact ready
 
----
-
-### da2a.session
-
+### `da2a.session`
 | Method | Type | Description |
-|________|______|_____________|
-| `da2a.session.create` | Request | Create session with participant list |
-| `da2a.session.update_context` | Request | RFC 7396 patch shared context |
-| `da2a.session.close` | Request | Terminate session |
+|---|---|---|
+| `da2a.session.create` | Request | Start multi-agent workflow session |
+| `da2a.session.update_context` | Request | RFC 7396 Merge Patch |
+| `da2a.session.close` | Request | Terminate |
 
 ---
 
-## Discord Bot Permissions
+## 🤖 Discord Permissions
 
-### Gateway Intents
+### ⚠️ Enable MESSAGE_CONTENT Intent
+**Developer Portal → Your App → Bot → Privileged Gateway Intents → Message Content → ON**
 
-> ⚠️ **All DA2A bots MUST enable `MESSAGE_CONTENT`** in Developer Portal → Bot → Privileged Gateway Intents. Without it, all message bodies are empty.
+| Intent | Value | Type | Required |
+|---|---|---|:---:|
+| `GUILDS` | 1 | Standard | ✅ |
+| `GUILD_MESSAGES` | 512 | Standard | ✅ |
+| `MESSAGE_CONTENT` | 32768 | **PRIVILEGED** | ✅ |
+| `GUILD_MEMBERS` | 2 | **PRIVILEGED** | Orchestrator only |
+| `GUILD_MESSAGE_REACTIONS` | 1024 | Standard | Recommended |
 
-| Intent | Value | Type | Required | Purpose |
-|________|_______|______|:---:|_________|
-| `GUILDS` | 1 | Standard | ✅ | Server/channel context |
-| `GUILD_MESSAGES` | 512 | Standard | ✅ | Receive message events |
-| `MESSAGE_CONTENT` | 32768 | **PRIVILEGED** | ✅ | Read message text |
-| `GUILD_MEMBERS` | 2 | **PRIVILEGED** | Orchestrator | Member management |
-| `GUILD_MESSAGE_REACTIONS` | 1024 | Standard | Recommended | Emoji ACK signals |
-
-**Minimum bitfield (required only):** `33281` | **Full recommended:** `34307`
-
----
-
-### Permissions by Agent Role
-
-| Permission | Orchestrator | Worker | Observer | Validator | Notifier |
-|___________|:---:|:---:|:---:|:---:|:---:|
-| VIEW_CHANNEL | ✅ | ✅ | ✅ | ✅ | ✅ |
-| SEND_MESSAGES | ✅ | ✅ | ❌ | ✅ | ✅ |
-| READ_MESSAGE_HISTORY | ✅ | ✅ | ✅ | ✅ | ❌ |
-| MANAGE_CHANNELS | ✅ | ❌ | ❌ | ❌ | ❌ |
-| MANAGE_MESSAGES | ✅ | ❌ | ❌ | ✅ | ❌ |
-| ADD_REACTIONS | ✅ | ✅ | ❌ | ✅ | ❌ |
-| EMBED_LINKS | ✅ | ✅ | ❌ | ❌ | ✅ |
-| ATTACH_FILES | ✅ | ✅ | ❌ | ❌ | ✅ |
-| USE_APPLICATION_COMMANDS | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Permission integer** | **2147616784** | **274978476** | **66560** | **74816** | **51200** |
-
-> Full bitfield calculations and per-permission `@doc` annotations in `docs/discord-permissions.jsonc`.
+| Role | Integer | DMs needed |
+|---|---|:---:|
+| Orchestrator | `2147616784` | ✅ |
+| Worker | `274978476` | ✅ |
+| Observer | `66560` | ❌ |
+| Validator | `74816` | Optional |
+| Notifier | `51200` | Optional |
 
 ---
 
-### OAuth2 Invite URLs
+## ❌ Error Codes
 
-Replace `CLIENT_ID` with your application ID from the [Discord Developer Portal](https://discord.com/developers/applications):
-
-```bash
-# Orchestrator
-https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot+applications.commands&permissions=2147616784
-
-# Worker
-https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot&permissions=274978476
-
-# Observer (read-only)
-https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot&permissions=66560
-
-# Validator
-https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot&permissions=74816
-
-# Notifier
-https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot&permissions=51200
-```
+| Code | Name | Trigger |
+|---|---|---|
+| -32700 | Parse Error | Invalid JSON |
+| -32600 | Invalid Request | Malformed RpcFrame |
+| -32601 | Method Not Found | Unknown method |
+| -32602 | Invalid Params | IDL validation failed |
+| **-32000** | AGENT_NOT_FOUND | Target not registered |
+| **-32001** | SKILL_NOT_FOUND | skill_id unknown |
+| **-32004** | RATE_LIMITED | Throttled — backoff |
+| **-32007** | CAPACITY_EXCEEDED | Agent at max_concurrency |
+| **-32011** | CONTENT_TOO_LARGE | Exceeds Discord limits |
+| **-32012** | DM_UNAVAILABLE | **NEW** — DMs disabled; fall back to reply/mention |
 
 ---
 
-### Developer Portal Checklist
-
-1. **Create Application** — One per agent bot in [Developer Portal](https://discord.com/developers/applications).
-2. **Enable Bot User** — Bot tab → Add Bot → copy token to `.env`. **Never commit tokens.**
-3. **Enable `MESSAGE_CONTENT` Intent** — Bot → Privileged Gateway Intents → Message Content → **ON**.
-4. **Enable `GUILD_MEMBERS` Intent** *(orchestrator only)* — Bot → Server Members Intent → **ON**.
-5. **Generate OAuth2 URL** — OAuth2 → URL Generator → select scope and permissions per role table.
-6. **Invite bot** — Open URL, select guild, authorize.
-7. **Configure channel overrides** — Restrict each bot to only its DA2A channels via Discord role overrides.
-
----
-
-## Message Lifecycle
-
-### Startup Sequence
-```
-OrchestratorBot                  DataPipelineBot
-      │                                │
-      │ ◄── da2a.registry.register ────│  REQUEST (directed)
-      │ ──► { accepted, peers, session_id } ────►│  RESPONSE
-      │                                │
-      │ ◄── da2a.registry.heartbeat ───│  NOTIFICATION (every 30s)
-```
-
-### Task Execution Flow
-```
-Orchestrator           Worker              All Channel Agents
-     │                   │                        │
-     │ da2a.task.submit ─►│                        │
-     │◄─ { task_id, state: queued }               │
-     │                   │                        │
-     │                   │── da2a.task.progress ──►│ NOTIFICATION
-     │                   │── da2a.task.progress ──►│ NOTIFICATION (pct: 75)
-     │                   │                        │
-     │                   │── da2a.task.complete ──►│ NOTIFICATION
-```
-
----
-
-## Error Handling
-
-| Code | Name | Description |
-|______|______|_____________|
-| -32700 | Parse Error | Invalid JSON received |
-| -32600 | Invalid Request | RpcFrame malformed |
-| -32601 | Method Not Found | Unknown `method` name |
-| -32602 | Invalid Params | `params` failed IDL validation |
-| -32603 | Internal Error | Unhandled exception |
-| **-32000** | AGENT_NOT_FOUND | Target `agent_id` not registered |
-| **-32001** | SKILL_NOT_FOUND | `skill_id` not in agent’s SkillDefs |
-| **-32002** | TASK_NOT_FOUND | `task_id` does not exist |
-| **-32003** | SESSION_EXPIRED | `session_id` expired or evicted |
-| **-32004** | RATE_LIMITED | Agent throttling; retry with backoff |
-| **-32005** | PERMISSION_DENIED | Caller not authorized |
-| **-32006** | TASK_TIMEOUT | Task exceeded `deadline_utc` |
-| **-32007** | CAPACITY_EXCEEDED | Agent at `max_concurrency` |
-| **-32008** | INVALID_AGENT_CARD | AgentCard schema validation failed |
-| **-32009** | DUPLICATE_TASK | `idempotency_key` collision |
-| **-32010** | BROADCAST_UNDELIVERED | At least one recipient failed |
-| **-32011** | CONTENT_TOO_LARGE | RichContent exceeds Discord limits |
-
----
-
-## Transport Constraints
-
-| Constraint | Limit |
-|___________|_______|
-| Max message characters | **2,000** |
-| Max embed description | **6,000 chars** |
-| Max embed fields per message | **25** |
-| Max embeds per message | **10** |
-| Max file attachment | **25 MB** |
-| Rate limit per channel/sec | **5 msgs** |
-| Global rate limit/sec | **50 msgs** |
-| Encoding | **UTF-8** |
-
----
-
-## Wire Format Rules
-
-1. All DA2A schema files use the `.jsonc` extension.
-2. Comments use `//` (line) and `/* */` (block). Never inside string values.
-3. Trailing commas are **prohibited**. Use a JSONC parser on receipt.
-4. All messages MUST be UTF-8 encoded. No BOM.
-5. Strip JSONC comments before posting to Discord; parse as JSONC on receipt.
-6. Messages exceeding 2,000 chars MUST be chunked with `reply_to_msg` and `"chunk": N, "total_chunks": M` in part metadata.
-
----
-
-## Quick Start
-
-### 1. Bot setup
-Follow the [Developer Portal Checklist](#developer-portal-checklist). Enable `MESSAGE_CONTENT` intent.
-
-### 2. Define your AgentCard
-```jsonc
-{
-  "agent_id": "YOUR_BOT_SNOWFLAKE",
-  "name": "MyWorkerBot",
-  "description": "**Processes data pipelines.**\nSupports CSV ingestion and schema validation.",
-  "version": "1.0.0",
-  "role": "worker",
-  "capabilities": ["etl", "csv"],
-  "skills": [{
-    "id": "ingest_csv",
-    "name": "Ingest CSV",
-    "description": "Parses and validates a CSV file.",
-    "method": "da2a.task.submit",
-    "tags": ["csv", "ingest"]
-  }],
-  "max_concurrency": 3,
-  "ttl_seconds": 300
-}
-```
-
-### 3. Register on startup
-Wrap a `da2a.registry.register` call in a `MessageEnvelope` and post to the DA2A channel. See `examples/01_register_request.jsonc`.
-
-### 4. Handle tasks
-Filter messages where `payload.method === "da2a.task.submit"` and `payload.params.spec.skill_id` matches your `SkillDef.id`.
-
-### 5. Stream progress and complete
-Broadcast `da2a.task.progress` Notifications (no `id`). When done, broadcast `da2a.task.complete` with full `TaskResult`.
-
----
-
-## Implementation Guide
+## 🚀 Quick Start
 
 ```python
-import json, uuid, datetime
+# 1. Publish AgentCard on startup
+envelope = {
+  "da2a": "1.1.0",
+  "msg_id": str(uuid4()),
+  "from": MY_BOT_ID,
+  "channel_id": DA2A_CHANNEL_ID,
+  "timestamp": utcnow(),
+  "payload": {
+    "jsonrpc": "2.0", "id": "reg-001",
+    "method": "da2a.registry.register",
+    "params": { "card": { ...MY_AGENT_CARD, "dm_enabled": True } }
+  }
+}
 
-def parse_envelope(raw: str) -> dict:
-    envelope = json.loads(raw)
-    assert envelope["da2a"] == "1.0.0"
-    return envelope
+# 2. Receive a task — handle it, stream progress via discord.reply()
+async def on_task(original_msg, spec):
+    for pct in [25, 50, 75, 100]:
+        progress_env = build_progress_notification(spec["task_id"], pct)
+        await original_msg.reply(json.dumps(progress_env))  # Discord threading
 
-def is_for_me(env: dict, my_id: str) -> bool:
-    return env.get("to") is None or env["to"] == my_id
-
-def route_rpc(rpc: dict):
-    method  = rpc.get("method")
-    rpc_id  = rpc.get("id")  # None = Notification
-    params  = rpc.get("params", {})
-    if method == "da2a.task.submit":
-        handle_task_submit(rpc_id, params["spec"])
-    elif method == "da2a.task.progress":
-        handle_progress(params)      # No response
-    elif method == "da2a.registry.heartbeat":
-        update_registry(params)      # No response
-
-def make_progress(task_id: str, pct: int, msg: str) -> dict:
-    return {
-        "da2a": "1.0.0",
-        "msg_id": str(uuid.uuid4()),
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-        "from": MY_AGENT_ID,
-        "channel_id": CHANNEL_ID,
-        "payload": {
-            "jsonrpc": "2.0",
-            # No "id" — Notification
-            "method": "da2a.task.progress",
-            "params": {"task_id": task_id, "state": "running", "pct": pct, "message": msg}
-        }
-    }
+# 3. Send unicast via DM (preferred)
+async def dm_agent(target_id, content):
+    try:
+        user = await bot.fetch_user(int(target_id))
+        dm = await user.create_dm()
+        await dm.send(json.dumps(build_envelope(content, mode="discord_dm")))
+    except discord.Forbidden:
+        raise DA2AError(-32012, "DM_UNAVAILABLE")  # caller falls back
 ```
 
 ---
 
-## Security Considerations
+## 🗺️ Roadmap
 
-1. **Token security** — Store bot tokens in `.env` / secrets manager. Never commit to Git.
-2. **Channel isolation** — Use Discord channel-level permission overrides to confine each bot.
-3. **Message validation** — Validate `da2a` version and all required IDL fields before processing.
-4. **Idempotency** — Always set `idempotency_key` on task submissions to prevent replay.
-5. **TTL enforcement** — Drop messages where `timestamp + ttl_seconds < now()`.
-6. **Rate limiting** — Exponential backoff on `-32004`. Respect Discord’s 5 msg/s limit.
-7. **Minimal privilege** — Only request `GUILD_MEMBERS` / `MESSAGE_CONTENT` for bots that need them.
-8. **Secret scanning** — Run secret scanning CI on all commits. Replace placeholder IDs before production.
-
----
-
-## Versioning & Compatibility
-
-- DA2A follows **Semantic Versioning** (`MAJOR.MINOR.PATCH`).
-- The `da2a` field in `MessageEnvelope` carries the protocol version. Agents MUST reject incompatible major versions.
-- `AgentCard.version` is the agent’s **software version**, independent of protocol version.
-- **Minor versions** add optional fields only. Agents MUST ignore unknown fields (forward compatibility).
-- **Major versions** require explicit negotiation and a dual-version deployment window.
+| Version | What | Status |
+|---|---|---|
+| **v1.0.0** | Core IDL, 4 interfaces, 8 wire examples | ✅ Shipped |
+| **v1.1.0** | Discord-native addressing, DM + reply methods, DiscordDelivery struct | ✅ Shipped |
+| **v1.2.0** | Python reference implementation (`da2a-py`) | 🔜 Planned |
+| **v1.3.0** | JSON Schema validator CLI (`da2a validate msg.json`) | 🔜 Planned |
+| **v2.0.0** | WebSocket transport variant | 💡 Exploring |
 
 ---
 
-## Glossary
+## 🔒 Security
 
-| Term | Definition |
-|______|___________|
-| **AgentCard** | Machine-readable identity + capability document published on connect |
-| **CapabilityTag** | Kebab-case string for a broad capability domain (e.g. `"data-pipeline"`) |
-| **ContentPart** | A single typed unit within a `RichContent` multipart payload |
-| **DA2A** | Discord Agent-to-Agent — this protocol |
-| **IDL** | Interface Description Language — type system for message contracts |
-| **MessageEnvelope** | Outermost wrapper for every DA2A channel message |
-| **Notification** | JSON-RPC 2.0 message with no `id` — fire-and-forget, no response |
-| **RichContent** | Ordered `ContentPart[]` forming a multipart message body |
-| **RpcFrame** | JSON-RPC 2.0 object embedded in `MessageEnvelope.payload` |
-| **SessionId** | UUID correlating messages in one logical multi-agent workflow |
-| **SkillDef** | IDL method signature declaring a callable capability on an agent |
-| **Snowflake** | Discord’s 64-bit unique ID for users, channels, guilds, messages |
-| **TaskId** | UUID uniquely identifying one delegated work unit |
-| **TaskState** | FSM status: `submitted → queued → running → completed/failed/...` |
-| **TTL** | Time-to-live; messages and registrations expire after this many seconds |
+1. Store bot tokens in `.env` / secrets manager — never commit
+2. Enable `MESSAGE_CONTENT` only for bots that need it
+3. Validate `da2a` version field and required IDL fields before processing
+4. Use `idempotency_key` to handle Discord's at-least-once delivery
+5. Drop messages where `timestamp + ttl_seconds < now()`
+6. Exponential backoff on `-32004 RATE_LIMITED`
+7. Handle `-32012 DM_UNAVAILABLE` gracefully — fall back to `discord_reply`
 
 ---
 
-*DA2A Protocol v1.0.0 — Licensed under MIT.*
+## 🤝 Standards
+
+- [JSON-RPC 2.0](https://www.jsonrpc.org/specification) — framing and error model
+- [A2A Protocol](https://a2a-protocol.org) — AgentCard and SkillDef patterns
+- [RFC 7396](https://datatracker.ietf.org/doc/html/rfc7396) — JSON Merge Patch
+- [CommonMark](https://commonmark.org) — Markdown standard
+- [AGENTS.md](https://agents.md) — AI agent instruction standard
+- [Discord Developer Docs](https://discord.com/developers/docs) — Gateway, REST, Intents
+
+---
+
+## 📄 License
+
+MIT — free to use, modify, and distribute.
+
+---
+
+<div align="center">
+
+**DA2A v1.1.0** — *Discord handles WHERE. DA2A handles WHAT.*
+
+*Built by [Profit Rise Consulting](https://profitriseco.com) · Hong Kong*
+
+</div>

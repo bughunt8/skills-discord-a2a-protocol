@@ -1,0 +1,36 @@
+{
+  // Example 10: In-Channel Reply (using Discord message.reply())
+  // Interface: da2a.message.reply
+  // Direction: DataPipelineBot --> OrchestratorBot (reply to original submit)
+  //
+  // v1.1.0 — Preferred in-channel response pattern.
+  // DataPipelineBot calls original_message.reply() — Discord visually
+  // threads this under the task submit message automatically.
+  // "reply_to_msg" is SEMANTIC METADATA; Discord reply() handles correlation.
+
+  "da2a": "1.1.0",
+  "msg_id": "550e8400-e29b-41d4-a716-446655440010",
+  "timestamp": "2026-05-06T14:00:45Z",
+  "from": "222000222000222002",
+  "to":   "111000111000111001",
+  "channel_id": "111222333444555666",
+  "reply_to_msg": "550e8400-e29b-41d4-a716-446655440091",
+  "delivery": {
+    "mode": "discord_reply",
+    "discord_msg_id": "999888777666555441",
+    "fallback_reason": null,
+    "attempted_modes": ["discord_reply"]
+  },
+  "payload": {
+    "jsonrpc": "2.0",
+    "id": "dm-task-091",
+    "result": {
+      "delivered": true,
+      "reply_discord_msg_id": "999888777666555442",
+      "actual_delivery": {
+        "mode": "discord_reply",
+        "discord_msg_id": "999888777666555442"
+      }
+    }
+  }
+}
