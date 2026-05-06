@@ -1,0 +1,192 @@
+{
+  // ===========================================================================
+  // DA2A-HO admission.idl.jsonc
+  //
+  // Version : 1.3.1
+  // Purpose : Bell–LaPadula (BLP) join / admission protocol.
+  //           Every agent MUST complete this handshake before participating
+  //           in any DA2A-HO conversation. The conversation does not advance
+  //           past L1 state=OPENING until all expected agents are ADMITTED.
+  //
+  // BLP Model — "write up, read down" (WURD):
+  //   Simple Security  — agent MUST NOT read above its clearance
+  //   Star (*)         — agent MUST NOT write below its clearance
+  //   Discretionary    — access matrix governs per-agent permissions
+  //   Tranquility      — clearance is IMMUTABLE for the session lifetime
+  //
+  // Any violation causes IMMEDIATE session halt; baton transfers to human.
+  //
+  // NOTE ON DISCORD-NATIVE FIELDS:
+  //   timestamp, channel_id, author/from, delivery_mode are provided by Discord.
+  //   They are NOT included in admission payloads. The harness reads them from
+  //   the Discord message object directly.
+  // ===========================================================================
+
+  "meta": {
+    "schema":  "admission",
+    "version": "1.3.1",
+    "model":   "Bell–LaPadula (BLP)",
+    "ref":     "https://en.wikipedia.org/wiki/Bell%E2%80%93LaPadula_model"
+  },
+
+  // ---------------------------------------------------------------------------
+  // SECTION 1 — Security Classification Levels
+  // ---------------------------------------------------------------------------
+  "ClearanceLevel": {
+    "type": "enum",
+    "values": [
+      "PUBLIC",       // 0 — unrestricted
+      "INTERNAL",     // 1 — session-scoped
+      "CONFIDENTIAL", // 2 — task-specific; assigned agents only
+      "RESTRICTED",   // 3 — orchestrator + human only
+      "HUMAN_ONLY"    // 4 — human operator exclusively; dominates all
+    ]
+  },
+
+  // ---------------------------------------------------------------------------
+  // SECTION 2 — BLP Access Rules (normative)
+  // ---------------------------------------------------------------------------
+  "blp_rules": {
+    "simple_security": {
+      "rule":       "Agent MUST NOT read above its clearance.",
+      "da2a":       "Agent MUST NOT process/forward packets from sessions with a higher ClearanceLevel."
+    },
+    "star_property": {
+      "rule":       "Agent MUST NOT write below its clearance.",
+      "da2a":       "Agent MUST NOT send packets that expose higher-clearance content to lower-clearance channels or agents."
+    },
+    "discretionary": {
+      "rule":       "Access further governed by an explicit access matrix.",
+      "da2a":       "Each session defines an AccessMatrix of permitted PacketIntents per agent."
+    },
+    "tranquility": {
+      "rule":       "Clearance MUST NOT change while the session is active.",
+      "da2a":       "ClearanceLevel assigned at admission is IMMUTABLE. Re-admission required for any level change."
+    },
+    "strong_star": {
+      "rule":       "Optional — agents may only write to objects at the same level.",
+      "da2a":       "Enabled via SessionPolicy.strong_star_property. No write-up or write-down when active."
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // SECTION 3 — Admission Structs
+  // ---------------------------------------------------------------------------
+  "structs": {
+
+    // Sent by joining agent — MUST include all four agreement fields set to true.
+    "AdmissionRequest": {
+      "agent_id":            "AgentId",
+      "conversation_hash":   "ConversationHash",
+      "requested_clearance": "ClearanceLevel",
+      "capabilities":        "string[]",
+      "vocabulary_sha256":   "Sha256|null",
+      "agreement": {
+        "blp_model_version":     "string",              // MUST be current version
+        "simple_security":       "boolean",             // MUST be true
+        "star_property":         "boolean",             // MUST be true
+        "tranquility":           "boolean",             // MUST be true
+        "discretionary":         "boolean",             // MUST be true
+        "violation_consequence": "string",              // MUST be \"IMMEDIATE_HALT_BATON_TO_HUMAN\"
+        "signature":             "string"               // \"<agent_id>:agrees:<iso-timestamp>\"
+      }
+    },
+
+    // Sent by orchestrator (baton holder) in response to AdmissionRequest.
+    "AdmissionDecision": {
+      "agent_id":            "AgentId",
+      "conversation_hash":   "ConversationHash",
+      "decision":            ["admitted", "denied"],
+      "granted_clearance":   "ClearanceLevel",
+      "reason":              "string|null",
+      "access_matrix_patch": "AccessMatrix|null",
+      "join_mode":           "JoinMode"
+    },
+
+    // Per-agent, per-intent permission map (discretionary property).
+    "AccessMatrix": {
+      "type":        "object",
+      "description": "AgentId → list of permitted PacketIntents",
+      "example": {
+        "agent.opencode":   ["handoff","ask","result","ack","nack","memory_proxy_request","cache_ref"],
+        "agent.perplexity": ["ask","result","ack","nack"],
+        "agent.newjoiner":  ["ack","nack"]
+      }
+    },
+
+    // Broadcast on any BLP violation — immediately halts the session.
+    "ViolationNotice": {
+      "conversation_hash":  "ConversationHash",
+      "violating_agent":    "AgentId",
+      "rule_violated":      ["simple_security","star_property","tranquility","discretionary"],
+      "description":        "string",
+      "evidence_packet_id": "PacketId",
+      "effect": {
+        "session_state":   "HUMAN_OVERRIDE",
+        "baton_seized_by": "human.operator",
+        "all_agents_halt": true
+      }
+    },
+
+    // Immutable session policy — broadcast at session open.
+    "SessionPolicy": {
+      "conversation_hash":           "ConversationHash",
+      "default_clearance":           "ClearanceLevel",
+      "strong_star_property":        "boolean",
+      "require_all_agents_admitted": "boolean",         // default true
+      "violation_action":            "IMMEDIATE_HALT_BATON_TO_HUMAN",
+      "access_matrix":               "AccessMatrix"
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // SECTION 4 — Admission RPC Methods
+  // ---------------------------------------------------------------------------
+  "interfaces": {
+    "admission": [
+      "admission.request",           // Agent → Orchestrator: request to join
+      "admission.grant",             // Orchestrator → Agent: admission granted
+      "admission.deny",              // Orchestrator → Agent: admission denied
+      "admission.policy.broadcast",  // Orchestrator → all: broadcast SessionPolicy
+      "admission.violation.report",  // Any agent → all: BLP violation detected
+      "admission.violation.halt"     // System: session halted, baton → human
+    ]
+  },
+
+  // ---------------------------------------------------------------------------
+  // SECTION 5 — Admission State Machine
+  // ---------------------------------------------------------------------------
+  "admission_state_machine": {
+    "states": [
+      "PENDING_ADMISSION",  // Joined channel; no agreement sent yet
+      "AGREEMENT_SENT",     // AdmissionRequest transmitted; awaiting decision
+      "ADMITTED",           // Orchestrator granted admission
+      "DENIED",             // Orchestrator denied; listen-only, no transmit
+      "VIOLATION_HALT"      // BLP violation; session frozen; human holds baton
+    ],
+    "transitions": [
+      { "from": "PENDING_ADMISSION", "to": "AGREEMENT_SENT", "trigger": "admission.request sent" },
+      { "from": "AGREEMENT_SENT",    "to": "ADMITTED",       "trigger": "admission.grant received" },
+      { "from": "AGREEMENT_SENT",    "to": "DENIED",         "trigger": "admission.deny received" },
+      { "from": "ADMITTED",          "to": "VIOLATION_HALT", "trigger": "admission.violation.halt broadcast" },
+      { "from": "ANY",               "to": "VIOLATION_HALT", "trigger": "BLP rule violated by any admitted agent" }
+    ],
+    "conversation_continuation_rule": "The conversation MUST NOT advance past L1 state=OPENING until ALL expected agents are in ADMITTED state."
+  },
+
+  // ---------------------------------------------------------------------------
+  // SECTION 6 — Normative Rules
+  // ---------------------------------------------------------------------------
+  "normative_rules": [
+    "Every agent MUST send AdmissionRequest before transmitting any non-admission packet.",
+    "AdmissionRequest.agreement MUST have simple_security=true, star_property=true, tranquility=true, discretionary=true.",
+    "AdmissionRequest.agreement.violation_consequence MUST equal 'IMMEDIATE_HALT_BATON_TO_HUMAN'.",
+    "Conversation MUST NOT advance past OPENING until all expected agents are ADMITTED.",
+    "A DENIED agent MUST enter listen-only mode and MUST NOT transmit.",
+    "On any BLP violation, admission.violation.halt MUST be broadcast immediately.",
+    "On violation.halt: session→HUMAN_OVERRIDE; all agents→backoff; human holds baton unconditionally.",
+    "ClearanceLevel is IMMUTABLE for the session lifetime (tranquility principle).",
+    "Agent MUST NOT read packets from sessions above its granted ClearanceLevel.",
+    "Agent MUST NOT send packets exposing higher-clearance content to lower-clearance channels or agents."
+  ]
+}

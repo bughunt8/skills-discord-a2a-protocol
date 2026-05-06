@@ -1,152 +1,107 @@
-# AGENTS.md — DA2A Protocol Repository
+# DA2A-HO Agent Implementation Guide
 
-> Instructions for AI agents (Claude Code, OpenClaw, GitHub Copilot, Codex, Cursor, etc.)
-> working in the `skills-discord-a2a-protocol` repository.
+> Version 1.3.1
 
----
-
-## 📋 Project Overview
-
-This repository defines the **DA2A (Discord Agent-to-Agent) Communication Protocol** — a typed,
-IDL + JSON-RPC 2.0 message protocol for multi-agent systems communicating over Discord channels.
-
-The repo contains:
-- `schema/protocol.idl.jsonc` — canonical type system (structs, interfaces, enums)
-- `examples/` — annotated wire-format example messages (`.jsonc`)
-- `docs/discord-permissions.jsonc` — Discord bot intent and permission specifications
-- `README.md` — human-facing documentation
-- `AGENTS.md` — this file
+This guide covers what every agent harness must implement to be DA2A-HO compliant.
 
 ---
 
-## 🧱 Architecture Invariants
+## Role Types
 
-Before making any changes, understand these constraints:
-
-1. **Every message on the wire is a `MessageEnvelope`** — the outermost object.
-2. **`payload` inside `MessageEnvelope` is always a `RpcFrame`** — strict JSON-RPC 2.0.
-3. **`RpcFrame.id` presence/absence determines message type:**
-   - `id` present + `method` present = Request
-   - `id` present + `result`/`error` present = Response
-   - `id` absent + `method` present = Notification (fire-and-forget)
-4. **All types are defined in `schema/protocol.idl.jsonc`** — do NOT invent new fields without updating the IDL first.
-5. **JSONC format** — `.jsonc` files may contain `//` and `/* */` comments. Never put comments inside string values.
-6. **Discord-native addressing (v1.1.0)** — `MessageEnvelope.to` and `.reply_to_msg` are SEMANTIC METADATA only. Discord DM > reply() > @mention > envelope fallback. See SECTION 0 in the IDL.
+| Role | Description |
+|---|---|
+| **Orchestrator** | Starts sessions, holds initial baton, manages admission, broadcasts `SessionPolicy` |
+| **Specialist** | Receives baton by transfer, executes sub-tasks, returns result packets |
+| **Observer** | PENDING or DENIED; listen-only; MUST NOT transmit |
 
 ---
 
-## ✅ Before You Make Changes
+## Lifecycle Checklist
 
-- [ ] Read `schema/protocol.idl.jsonc` fully — understand the type system before touching examples
-- [ ] Confirm the type or field you need doesn't already exist in the IDL
-- [ ] Verify any new field fits within Discord transport constraints
-- [ ] Ensure `required: true` fields are present in every example using that struct
-- [ ] For new delivery-related fields: follow the `addressing_precedence` order in `transport_constraints`
+### 1. Joining a Channel
 
----
+1. Observe the medium (`AccessObservation`) before transmitting anything.
+2. Send `AdmissionRequest` (example 10) with all BLP agreement fields `true`.
+3. Wait for `AdmissionDecision`. Do not transmit other packets until `ADMITTED`.
+4. Store the `SessionPolicy` and `AccessMatrix` from the grant packet.
 
-## 📝 Commit Conventions
+### 2. Discord Message Ingestion
 
-Use **conventional commits**:
+Every incoming Discord message provides:
+- `message.timestamp` — use this as the authoritative timestamp; do NOT read a separate `timestamp` field from the DA2A payload.
+- `message.channel_id` — channel routing.
+- `message.author.id` — sender identity.
+- Message type (DM / reply / thread / mention) — delivery mode.
 
-```
-feat: add <thing>
-fix: correct <thing>
-docs: update <section>
-schema: add/modify IDL type <TypeName>
-example: add/update example <NN_name.jsonc>
-chore: <housekeeping>
-```
+Parse the DA2A-HO packet from the message body/attachment. Do not re-derive Discord-provided fields.
 
-**Attribution on AI-assisted commits:**
-```
-Assisted-by: <TOOLNAME> (<MODELNAME>)
-```
-Do NOT add `Signed-off-by` on auto-generated commits — human review required first.
+### 3. Building Outgoing Packets
 
----
+Include in `L2TalkHeader`:
+- `packet_id` — unique correlation ID (UUID or slug). NOT the Discord message ID.
+- `seq` — monotonically increasing per-conversation sequence number.
+- `intent` — from `PacketIntent` enum.
+- `theme` — `human_readable` by default; switch to `compact_json` when `ChannelQuality.confidence < 0.5`.
+- `reply_to` — DA2A-level `packet_id` correlation (optional).
+- `ack` — if acknowledging a specific packet.
+- `content_hash` — `sha256:` of serialized payload (optional but SHOULD be included for large payloads).
 
-## 🗂️ File Conventions
+Do NOT include `timestamp`, `channel_id`, `from`, `to`, or `delivery_mode`. Discord provides these.
 
-### `schema/protocol.idl.jsonc`
-- New **types** → `"types"` object (primitive aliases only)
-- New **structs** → `"structs"` with sequential `"@id"` integers (currently 1–13)
-- New **methods** → appropriate interface, following `da2a.<interface>.<verb>` naming
-- Every field MUST have `"required": true` or `"required": false`
-- Every struct/method MUST have `"@doc": "..."` annotation
-- Notifications MUST have `"@notification": true`; no `"returns"` field
-- Idempotent methods MUST have `"@idempotent": true`
+### 4. Memory Access
 
-### `examples/` files
-- Naming: `NN_snake_case.jsonc` (zero-padded, currently up to 10)
-- Required top comment block:
-  ```
-  // Example NN: <Title>
-  // Interface: da2a.<interface>.<method>
-  // Direction: <SenderBot> --> <ReceiverBot or "broadcast">
-  ```
-- Notifications: add comment `// No "id" field — Notification pattern`
-- Use fake Snowflakes (18-digit numbers) and UUID pattern `550e8400-e29b-41d4-a716-44665544XXXX`
-- Always populate `delivery.mode` in v1.1.0+ examples
+- MUST NOT mount remote agent memory stores directly.
+- Use `MemoryProxyRequest` / `MemoryProxyResponse` for all cross-agent memory access.
+- `summary_only: true` and `max_items: 5` are good defaults.
+- `exclude_private: true` always.
 
----
+### 5. Payload Size Enforcement
 
-## 🔍 Validation Checklist
+| Threshold | Action |
+|---|---|
+| < 1800 chars | Inline Discord message |
+| 1800–25 MB | Discord attachment |
+| > 25 MB | External artifact store (`ArtifactAnnouncement` with URI + SHA-256) |
 
-When adding/modifying a **struct**:
-- [ ] `@id` is unique and sequential
-- [ ] `@doc` is meaningful
-- [ ] All fields have `required` set
-- [ ] Optional fields document defaults in `@doc`
-- [ ] If used in `RpcFrame.params`, the interface method references it
+### 6. KV-Cache Handling
 
-When adding/modifying an **interface method**:
-- [ ] `@id` unique within interface
-- [ ] Method name follows `da2a.<interface>.<verb>`
-- [ ] `params` references existing struct types only
-- [ ] Notifications have no `returns`
-- [ ] Corresponding example file exists
+- MUST NOT transmit raw KV tensors over Discord.
+- Share `KvCacheReference` only: `cache_id`, `model_family`, `compatibility`, optional `uri`, optional `sha256`.
+- Set `fallback_text_required: true` unless compatibility is verified as `binary_compatible`.
 
----
+### 7. BLP Enforcement
 
-## 🚫 Do NOT
+The harness MUST enforce Bell–LaPadula at the envelope level:
 
-- Add new top-level keys to `MessageEnvelope` without IDL update
-- Use trailing commas in `.jsonc` files
-- Put JSONC comments inside string values
-- Invent error codes outside `-32000` to `-32099`
-- Change existing `@id` integers (they are stable references)
-- Commit secrets, real tokens, or real Discord Snowflakes
-- Treat `envelope.to` as a routing instruction — it is metadata only
-- Skip populating `delivery.mode` in v1.1.0+ examples
+- **Simple Security:** Drop (and log) any received packet from a session with a higher `ClearanceLevel` than the agent’s granted clearance.
+- **Star Property:** Before sending, verify the destination channel/agent is at or above the agent’s `granted_clearance`. If not, abort send and emit `admission.violation.report`.
+- **Tranquility:** Reject any `granted_clearance` change mid-session. Log and emit `admission.violation.report`.
+- **Violation Response:** Broadcast `ViolationNotice`, transition to `HUMAN_OVERRIDE`, stop all transmissions, yield baton to `human.operator`.
+
+### 8. Collision / Backoff
+
+- If two agents transmit simultaneously, the one that detects the collision MUST emit `all_stop` with `BatonControl.action = take` targeting `human.operator`.
+- Backoff: randomized between `BackoffConfig.min_ms` and `BackoffConfig.max_ms` with jitter.
+- Only resume after an explicit `access.resume` from the baton holder.
+
+### 9. Session Close
+
+- `evict_on_close: true` in `L3AssimilationHeader` causes the harness to evict session-scoped cache entries.
+- Send `BatonControl.action = release` in the close payload.
 
 ---
 
-## 🧪 Validation
+## Quick Reference: What Discord Provides vs. What DA2A-HO Carries
 
-```bash
-# Strip JSONC comments and validate all files parse as JSON
-python3 -c "
-import re, json, sys, pathlib
-for f in pathlib.Path('.').rglob('*.jsonc'):
-    src = re.sub(r'//[^\n]*', '', f.read_text())
-    src = re.sub(r'/\*.*?\*/', '', src, flags=re.DOTALL)
-    try: json.loads(src); print(f'OK: {f}')
-    except Exception as e: print(f'FAIL: {f}: {e}'); sys.exit(1)
-"
-```
-
----
-
-## 🔗 Key References
-
-- [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
-- [Discord Gateway Intents](https://discord.com/developers/docs/topics/gateway)
-- [Discord Permissions](https://discord.com/developers/docs/topics/permissions)
-- [A2A Protocol](https://a2a-protocol.org)
-- [RFC 7396 JSON Merge Patch](https://datatracker.ietf.org/doc/html/rfc7396)
-- [AGENTS.md standard](https://agents.md)
-
----
-
-*DA2A Protocol v1.1.0 — AGENTS.md maintained by Profit Rise Consulting*
+| Field | Source | Notes |
+|---|---|---|
+| `timestamp` | Discord `message.timestamp` | ms-precision Snowflake; harness reads it |
+| `channel_id` | Discord `message.channel_id` | harness reads it |
+| `from` / author | Discord `message.author.id` | harness reads it |
+| `to` | Discord DM target / @mention | harness sets it before send |
+| `delivery_mode` | Discord message type | implicit; harness inspects message type |
+| `packet_id` | DA2A `L2TalkHeader.packet_id` | DA2A correlation UUID |
+| `seq` | DA2A `L2TalkHeader.seq` | monotonic per-conversation |
+| `intent` | DA2A `L2TalkHeader.intent` | semantic operation type |
+| `content_hash` | DA2A `L2TalkHeader.content_hash` | SHA-256 of payload; Discord does not provide |
+| `baton.holder` | DA2A `L1AccessHeader.baton.holder` | who holds the baton; Discord does not provide |

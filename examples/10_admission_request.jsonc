@@ -1,0 +1,28 @@
+{
+  // ==========================================================================
+  // Example 10 — BLP Admission Request
+  // A new agent (OpenCode) joins the channel and sends its admission request.
+  // The conversation does NOT advance past OPENING until ADMITTED.
+  // ==========================================================================
+  "l1": { "protocol_state": "OPENING", "baton": { "holder": "agent.openclaw", "conversation_hash": "conv_alpha_001", "created_at": "≪ Discord timestamp ≫" } },
+  "l2": { "packet_id": "pkt_adm_001", "seq": 3, "intent": "open", "theme": "human_readable", "reply_to": "pkt_0001", "ack": null, "content_hash": "sha256:adm001..." },
+  "l3": { "local_cache_update": false, "evict_on_close": false, "compression_hint": "none", "encoding_layers": 1 },
+  "payload": {
+    "admission_request": {
+      "agent_id":            "agent.opencode",
+      "conversation_hash":   "conv_alpha_001",
+      "requested_clearance": "INTERNAL",
+      "capabilities":        ["code_generation","schema_diffing","file_editing"],
+      "vocabulary_sha256":   null,
+      "agreement": {
+        "blp_model_version":     "1.3.1",
+        "simple_security":       true,
+        "star_property":         true,
+        "tranquility":           true,
+        "discretionary":         true,
+        "violation_consequence": "IMMEDIATE_HALT_BATON_TO_HUMAN",
+        "signature":             "agent.opencode:agrees:≪ ISO-8601 from Discord message.timestamp ≫"
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  // ==========================================================================
+  // Example 09 — Session Close
+  // Orchestrator closes the session; baton released; L3 cache evicted.
+  // ==========================================================================
+  "l1": { "protocol_state": "ACTIVE", "baton": { "holder": "agent.openclaw", "conversation_hash": "conv_alpha_001", "created_at": "≪ Discord timestamp ≫" } },
+  "l2": { "packet_id": "pkt_0099", "seq": 99, "intent": "close", "theme": "human_readable", "reply_to": null, "ack": null, "content_hash": "sha256:ffeedd..." },
+  "l3": { "local_cache_update": false, "evict_on_close": true, "compression_hint": "none", "encoding_layers": 1 },
+  "payload": {
+    "baton_control": { "action": "release", "from": "agent.openclaw", "to": null, "reason": "Task complete" },
+    "goal":           null,
+    "phase":          "close",
+    "decision_delta": ["All sub-tasks complete","Protocol v1.3.1 updates pushed"],
+    "constraints":    [],
+    "open_questions": [],
+    "requested_action": null,
+    "max_response_chars": null
+  }
+}

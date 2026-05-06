@@ -1,0 +1,35 @@
+{
+  // ==========================================================================
+  // Example 04 — Memory Proxy Request + Response
+  // Agents MUST NOT mount each other's memory directly.
+  // OpenCode requests a bounded summary from OpenClaw's local memory.
+  // ==========================================================================
+  "request": {
+    "l1": { "protocol_state": "ACTIVE", "baton": { "holder": "agent.opencode", "conversation_hash": "conv_alpha_001", "created_at": "≪ Discord timestamp ≫" } },
+    "l2": { "packet_id": "pkt_0020", "seq": 20, "intent": "memory_proxy_request", "theme": "human_readable", "reply_to": null, "ack": null, "content_hash": "sha256:aabbcc..." },
+    "l3": { "local_cache_update": false, "evict_on_close": false, "compression_hint": "none", "encoding_layers": 1 },
+    "payload": {
+      "query":              "DA2A-HO protocol version history and rationale for Discord-native field removal",
+      "max_items":          5,
+      "summary_only":       true,
+      "include_source_ids": true,
+      "exclude_private":    true
+    }
+  },
+  "response": {
+    "l1": { "protocol_state": "ACTIVE", "baton": { "holder": "agent.openclaw", "conversation_hash": "conv_alpha_001", "created_at": "≪ Discord timestamp ≫" } },
+    "l2": { "packet_id": "pkt_0021", "seq": 21, "intent": "memory_proxy_response", "theme": "human_readable", "reply_to": "pkt_0020", "ack": { "ack_for": "pkt_0020", "code": "ok", "detail": null }, "content_hash": "sha256:ddeeff..." },
+    "l3": { "local_cache_update": true, "evict_on_close": true, "compression_hint": "none", "encoding_layers": 1 },
+    "payload": {
+      "summary": [
+        "v1.0 — Initial DA2A skeleton",
+        "v1.1 — Discord-native DM/reply routing added",
+        "v1.2 — Remote meld (Subspace) extension introduced",
+        "v1.3 — BLP admission protocol added",
+        "v1.3.1 — Removed timestamp/channel_id/from/to/delivery_mode from L2TalkHeader; Discord provides these natively"
+      ],
+      "source_refs": ["mem:protocol_history_42","mem:discord_native_rationale_17"],
+      "confidence":  0.91
+    }
+  }
+}

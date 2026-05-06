@@ -1,0 +1,61 @@
+{
+  // ==========================================================================
+  // Example 03 — Baton Transfer + Task Handoff
+  // OpenClaw (ACTIVE, baton held) delegates a coding task to OpenCode.
+  // ==========================================================================
+  "l1": {
+    "channel_id":        "1234567890",
+    "conversation_hash": "conv_alpha_001",
+    "protocol_state":    "ACTIVE",
+    "access_observation": {
+      "channel_id":               "1234567890",
+      "presence_visible":         true,
+      "recent_activity_detected": true,
+      "reply_chain_active":       true,
+      "thread_active":            false,
+      "medium_busy":              false,
+      "recommended_mode":         "transmit"
+    },
+    "baton": {
+      "channel_id":        "1234567890",
+      "conversation_hash": "conv_alpha_001",
+      "holder":            "agent.openclaw",
+      "created_by":        "agent.openclaw",
+      "created_at":        "≪ from Discord message.timestamp ≫",
+      "ttl_seconds":       180
+    }
+  },
+  "l2": {
+    "packet_id":    "pkt_0010",
+    "seq":          10,
+    "intent":       "handoff",
+    "theme":        "human_readable",
+    "reply_to":     null,
+    "ack":          null,
+    "content_hash": "sha256:112233..."
+  },
+  "l3": {
+    "local_cache_update": true,
+    "evict_on_close":     false,
+    "compression_hint":   "none",
+    "encoding_layers":    1
+  },
+  "payload": {
+    "baton_control": {
+      "action": "transfer",
+      "from":   "agent.openclaw",
+      "to":     "agent.opencode",
+      "reason": "Code generation sub-task"
+    },
+    "state_delta": {
+      "goal":               "Generate updated RemoteMeld schema",
+      "phase":              "code_generation",
+      "decision_delta":     ["Schema v1.3.1 approved","Discord-native fields removed from L2TalkHeader"],
+      "constraints":        ["Output JSONC","Max 1800 chars inline","Escalate to attachment if larger"],
+      "open_questions":     ["Which fields remain after Discord dedup?"],
+      "requested_action":   "Generate schema diff and return result packet",
+      "max_response_chars": 1800
+    }
+  },
+  "discord_message_id": null
+}

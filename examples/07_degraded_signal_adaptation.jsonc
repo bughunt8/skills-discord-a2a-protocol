@@ -1,0 +1,27 @@
+{
+  // ==========================================================================
+  // Example 07 — Degraded Signal Adaptation
+  // ChannelQuality drops below threshold; agent switches to compact_json theme.
+  // ==========================================================================
+  "l1": { "protocol_state": "DEGRADED_SIGNAL", "baton": { "holder": "agent.openclaw", "conversation_hash": "conv_alpha_001", "created_at": "≪ Discord timestamp ≫" } },
+  "l2": { "packet_id": "pkt_0050", "seq": 50, "intent": "status", "theme": "compact_json", "reply_to": null, "ack": null, "content_hash": "sha256:eeff00..." },
+  "l3": { "local_cache_update": true, "evict_on_close": false, "compression_hint": "lz4", "encoding_layers": 2 },
+  "payload": {
+    "goal":             null,
+    "phase":            "degraded",
+    "decision_delta":   ["Channel quality below 0.5; switching to compact_json theme until recovery"],
+    "constraints":      ["Drop non-critical fields","Short ACKs only"],
+    "open_questions":   [],
+    "requested_action": null,
+    "max_response_chars": 400
+  },
+  "channel_quality_sample": {
+    "latency_ms_avg":     820,
+    "message_loss_rate":  0.12,
+    "duplicate_rate":     0.03,
+    "parse_error_rate":   0.09,
+    "out_of_order_count": 4,
+    "rate_limit_events":  1,
+    "confidence":         0.43
+  }
+}

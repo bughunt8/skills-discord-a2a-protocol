@@ -1,325 +1,351 @@
 {
-  // ==========================================================================
-  // DISCORD AGENT-TO-AGENT COMMUNICATION PROTOCOL (DA2A)
-  // Version: 1.1.0  |  IDL + JSON-RPC 2.0  |  Transport: Discord Gateway
+  // ===========================================================================
+  // DA2A-HO — Discord Agent-to-Agent High-Efficiency Operations Protocol
+  // schema/protocol.idl.jsonc
   //
-  // CHANGELOG v1.1.0:
-  //   - MessageEnvelope: "to" / "reply_to_msg" reclassified as semantic
-  //     metadata; added "discord_delivery" section with addressing_precedence
-  //   - Added AddressingMode type and DiscordDelivery struct (@id 13)
-  //   - Added transport_constraints.addressing_precedence array
-  //   - Added SECTION 0 addressing_semantics comment block
-  //   - interfaces.message: added discord_dm and discord_reply methods
-  //   - Updated @doc on MessageEnvelope.to and .reply_to_msg
-  // ==========================================================================
+  // Version   : 1.3.1
+  // License   : MIT
+  // Repo      : github.com/bughunt8/skills-discord-a2a-protocol
+  //
+  // Architecture: ISO-style 3-layer stack
+  //   Layer 1 — Accessing   : Medium access discipline (IEEE 802.11 CSMA/CA inspired)
+  //   Layer 2 — Talking     : Encoded packet transfer between agents
+  //   Layer 3 — Assimilation: Local KV-cache and context update from received data
+  //
+  // Normative language follows RFC 2119: MUST / SHOULD / MAY.
+  // ===========================================================================
 
-  "module": "da2a",
-  "version": "1.1.0",
-  "transport": "discord/gateway+rest",
-  "encoding": "jsonc",
-  "rpc_protocol": "json-rpc/2.0",
+  "meta": {
+    "protocol":     "DA2A-HO",
+    "version":      "1.3.1",
+    "architecture": "ISO-style 3-layer",
+    "transport":    "Discord-native first; envelope metadata as control supplement",
+    "primary_goal": "Maximize semantic payload per token across: LLM-decode → Discord-transport → LLM-encode",
+    "efficiency_pillars": ["token","payload","cognitive","turn","reliability","observability"]
+  },
 
-  // --------------------------------------------------------------------------
-  // SECTION 0 — ADDRESSING SEMANTICS
-  //
-  // DA2A is Discord-native. Discord owns the transport layer.
-  // Agent-to-agent delivery MUST follow this precedence order:
-  //
-  //   1. discord_dm        — Direct Message via create_dm() + send()
-  //                          Preferred for unicast: secure, cross-channel,
-  //                          bypasses channel rate limits.
-  //
-  //   2. discord_reply     — message.reply() in-channel
-  //                          Preferred for in-thread responses: Discord
-  //                          visually groups messages; correlation is implicit.
-  //
-  //   3. discord_mention   — @mention in channel message
-  //                          Soft notify: triggers Discord notification but
-  //                          no guaranteed delivery semantics.
-  //
-  //   4. envelope_to_field — MessageEnvelope.to / reply_to_msg fields
-  //                          FALLBACK ONLY. Used when:
-  //                            a) DM is unavailable (bot privacy settings)
-  //                            b) Message is replayed outside Discord context
-  //                            c) Audit log / log pipeline processing
-  //                            d) Cross-shard relay where discord context lost
-  //
-  // The "to" and "reply_to_msg" fields in MessageEnvelope are SEMANTIC
-  // METADATA — they record intent and lineage, not routing instructions.
-  // Discord handles WHERE and HOW; DA2A handles WHAT and WHY.
-  // --------------------------------------------------------------------------
-
+  // ---------------------------------------------------------------------------
+  // SECTION 1 — Primitive Types
+  // ---------------------------------------------------------------------------
   "types": {
-    "AgentId":       { "type": "string", "format": "discord-snowflake" },
-    "MessageId":     { "type": "string", "format": "uuid" },
-    "SessionId":     { "type": "string", "format": "uuid" },
-    "TaskId":        { "type": "string", "format": "uuid" },
-    "CapabilityTag": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" },
-    "Priority":      { "type": "string", "enum": ["critical", "high", "normal", "low", "background"] },
-    "AgentRole":     { "type": "string", "enum": ["orchestrator", "worker", "observer", "validator", "notifier"] },
-    "TaskState":     { "type": "string", "enum": ["submitted", "queued", "running", "awaiting_input", "completed", "failed", "cancelled", "timed_out"] },
-    "ContentType":   { "type": "string", "enum": ["text/plain", "text/markdown", "application/json", "text/code", "text/table", "application/embed", "application/error"] },
-    "LogLevel":      { "type": "string", "enum": ["trace", "debug", "info", "warn", "error", "fatal"] },
-    "AddressingMode": {
-      "type": "string",
-      "enum": ["discord_dm", "discord_reply", "discord_mention", "envelope_to_field"],
-      "@doc": "Delivery mechanism used. discord_dm and discord_reply are preferred. envelope_to_field is fallback only."
-    }
-  },
+    "AgentId":          "string",   // e.g. "agent.openclaw"
+    "HumanId":          "string",
+    "ChannelId":        "string",   // Discord channel / thread / DM identifier
+    "ConversationHash": "string",   // Unique baton hash — 1 per channel at any time
+    "PacketId":         "string",   // Per-packet UUID or slug
+    "Sha256":           "string",   // "sha256:<hex>"
 
-  "structs": {
-    "AgentCard": {
-      "@doc": "Machine-readable identity and capability declaration. Published on connect and cached by peers.",
-      "@id": 1,
-      "fields": {
-        "agent_id":        { "type": "AgentId",        "required": true },
-        "name":            { "type": "string",          "required": true },
-        "description":     { "type": "markdown",        "required": true,  "@doc": "CommonMark; parsed by LLM orchestrators for routing" },
-        "version":         { "type": "semver",          "required": true },
-        "role":            { "type": "AgentRole",       "required": true },
-        "capabilities":    { "type": "CapabilityTag[]", "required": true },
-        "skills":          { "type": "SkillDef[]",      "required": true },
-        "input_modes":     { "type": "ContentType[]",   "required": false },
-        "output_modes":    { "type": "ContentType[]",   "required": false },
-        "max_concurrency": { "type": "uint32",          "required": false, "@doc": "0 = unlimited" },
-        "ttl_seconds":     { "type": "uint32",          "required": false },
-        "dm_enabled":      { "type": "boolean",         "required": false, "@doc": "NEW v1.1.0 — true if bot accepts DMs. Orchestrators check before discord_dm delivery." },
-        "metadata":        { "type": "json",            "required": false }
-      }
-    },
+    // NOTE: timestamp, channel_id, author/from, to, and delivery_mode are ALL
+    // provided by the Discord message object natively and MUST NOT be duplicated
+    // inside DA2A-HO packet payloads. See L2TalkHeader for the boundary.
 
-    "SkillDef": {
-      "@doc": "One callable capability. Acts as an IDL method signature with JSON Schema contracts.",
-      "@id": 2,
-      "fields": {
-        "id":            { "type": "string",          "required": true },
-        "name":          { "type": "string",          "required": true },
-        "description":   { "type": "markdown",        "required": true },
-        "method":        { "type": "string",          "required": true },
-        "input_schema":  { "type": "json",            "required": false },
-        "output_schema": { "type": "json",            "required": false },
-        "tags":          { "type": "CapabilityTag[]", "required": false },
-        "examples":      { "type": "string[]",        "required": false },
-        "requires_auth": { "type": "boolean",         "required": false }
-      }
-    },
-
-    "MessageEnvelope": {
-      "@doc": "Wire-format wrapper. Every DA2A message MUST be a MessageEnvelope. v1.1.0: 'to' and 'reply_to_msg' are SEMANTIC METADATA only — not transport addresses. Discord DM/reply/mention handle actual delivery. See SECTION 0.",
-      "@id": 3,
-      "fields": {
-        "da2a":         { "type": "semver",          "required": true,  "@doc": "MUST be '1.1.0'" },
-        "msg_id":       { "type": "MessageId",       "required": true,  "@doc": "UUID v4 for deduplication" },
-        "session_id":   { "type": "SessionId",       "required": false },
-        "timestamp":    { "type": "timestamp",       "required": true,  "@doc": "ISO 8601 UTC" },
-        "from":         { "type": "AgentId",         "required": true },
-        "to":           { "type": "AgentId",         "required": false, "@doc": "SEMANTIC METADATA ONLY. Records intended recipient for audit/replay. Discord delivery handles actual routing. Omit for broadcast." },
-        "reply_to_msg": { "type": "MessageId",       "required": false, "@doc": "SEMANTIC METADATA ONLY. Use discord message.reply() for in-channel threading. This field supports audit logs and cross-context replay only." },
-        "channel_id":   { "type": "string",          "required": true },
-        "priority":     { "type": "Priority",        "required": false },
-        "ttl_seconds":  { "type": "uint32",          "required": false },
-        "trace_id":     { "type": "uuid",            "required": false },
-        "delivery":     { "type": "DiscordDelivery", "required": false, "@doc": "NEW v1.1.0 — records which Discord delivery mode was used" },
-        "payload":      { "type": "RpcFrame",        "required": true }
-      }
-    },
-
-    "RpcFrame": {
-      "@doc": "Strict JSON-RPC 2.0 frame. id present = Request or Response. id absent = Notification.",
-      "@id": 4,
-      "fields": {
-        "jsonrpc": { "type": "string",   "required": true,  "@doc": "MUST be '2.0'" },
-        "id":      { "type": "string",   "required": false, "@doc": "Omit for Notifications" },
-        "method":  { "type": "string",   "required": false },
-        "params":  { "type": "json",     "required": false },
-        "result":  { "type": "json",     "required": false },
-        "error":   { "type": "RpcError", "required": false }
-      }
-    },
-
-    "RpcError": {
-      "@doc": "JSON-RPC 2.0 error object. DA2A codes: -32000 to -32099.",
-      "@id": 5,
-      "fields": {
-        "code":    { "type": "int32",  "required": true },
-        "message": { "type": "string", "required": true },
-        "data":    { "type": "json",   "required": false }
-      }
-    },
-
-    "RichContent": {
-      "@doc": "Multipart content block. Ordered array of typed ContentPart items.",
-      "@id": 6,
-      "fields": {
-        "parts": { "type": "ContentPart[]", "required": true }
-      }
-    },
-
-    "ContentPart": {
-      "@doc": "One typed unit within a RichContent payload.",
-      "@id": 7,
-      "fields": {
-        "type":        { "type": "ContentType", "required": true },
-        "content":     { "type": "string",      "required": false },
-        "content_url": { "type": "string",      "required": false, "@doc": "URL for content >1500 chars; mutually exclusive with content" },
-        "encoding":    { "type": "string",      "required": false },
-        "lang":        { "type": "string",      "required": false, "@doc": "Language hint for text/code parts" },
-        "title":       { "type": "string",      "required": false },
-        "metadata":    { "type": "json",        "required": false }
-      }
-    },
-
-    "TaskSpec": {
-      "@doc": "Input contract for delegating work to a worker agent.",
-      "@id": 8,
-      "fields": {
-        "task_id":          { "type": "TaskId",      "required": true },
-        "skill_id":         { "type": "string",      "required": true },
-        "input":            { "type": "RichContent", "required": true },
-        "context":          { "type": "json",        "required": false },
-        "deadline_utc":     { "type": "timestamp",   "required": false },
-        "priority":         { "type": "Priority",    "required": false },
-        "callback_channel": { "type": "string",      "required": false },
-        "idempotency_key":  { "type": "string",      "required": false }
-      }
-    },
-
-    "TaskResult": {
-      "@doc": "Output contract returned or broadcast by a worker agent.",
-      "@id": 9,
-      "fields": {
-        "task_id":     { "type": "TaskId",      "required": true },
-        "state":       { "type": "TaskState",   "required": true },
-        "output":      { "type": "RichContent", "required": false },
-        "error":       { "type": "RpcError",    "required": false },
-        "duration_ms": { "type": "uint64",      "required": false },
-        "tokens_used": { "type": "uint32",      "required": false },
-        "artifacts":   { "type": "Artifact[]",  "required": false }
-      }
-    },
-
-    "Artifact": {
-      "@doc": "Named output artifact produced during task execution.",
-      "@id": 10,
-      "fields": {
-        "name":       { "type": "string",    "required": true },
-        "mime_type":  { "type": "mime_type", "required": true },
-        "url":        { "type": "string",    "required": false },
-        "content":    { "type": "string",    "required": false },
-        "size_bytes": { "type": "uint64",    "required": false },
-        "checksum":   { "type": "string",    "required": false, "@doc": "SHA-256 hex digest" },
-        "encoding":   { "type": "string",    "required": false }
-      }
-    },
-
-    "ProgressEvent": {
-      "@doc": "Async progress notification. Sent as JSON-RPC 2.0 Notification (no id field).",
-      "@id": 11,
-      "fields": {
-        "task_id":   { "type": "TaskId",    "required": true },
-        "state":     { "type": "TaskState", "required": true },
-        "pct":       { "type": "uint32",    "required": false },
-        "message":   { "type": "markdown",  "required": false },
-        "log_level": { "type": "LogLevel",  "required": false },
-        "detail":    { "type": "json",      "required": false }
-      }
-    },
-
-    "ErrorCode": {
-      "@doc": "DA2A application error codes (-32000 to -32099). Standard JSON-RPC codes (-32700 to -32600) also apply.",
-      "@id": 12,
-      "values": {
-        "AGENT_NOT_FOUND":       { "code": -32000 },
-        "SKILL_NOT_FOUND":       { "code": -32001 },
-        "TASK_NOT_FOUND":        { "code": -32002 },
-        "SESSION_EXPIRED":       { "code": -32003 },
-        "RATE_LIMITED":          { "code": -32004 },
-        "PERMISSION_DENIED":     { "code": -32005 },
-        "TASK_TIMEOUT":          { "code": -32006 },
-        "CAPACITY_EXCEEDED":     { "code": -32007 },
-        "INVALID_AGENT_CARD":    { "code": -32008 },
-        "DUPLICATE_TASK":        { "code": -32009 },
-        "BROADCAST_UNDELIVERED": { "code": -32010 },
-        "CONTENT_TOO_LARGE":     { "code": -32011 },
-        "DM_UNAVAILABLE":        { "code": -32012, "@doc": "NEW v1.1.0 — Target bot has DMs disabled; fall back to discord_reply or discord_mention" }
-      }
-    },
-
-    "DiscordDelivery": {
-      "@doc": "NEW v1.1.0 — Records which Discord delivery mechanism was used. Stored in MessageEnvelope.delivery for audit trails.",
-      "@id": 13,
-      "fields": {
-        "mode":              { "type": "AddressingMode",   "required": true,  "@doc": "Actual delivery mode used" },
-        "discord_msg_id":    { "type": "string",           "required": false, "@doc": "Discord Snowflake of the sent message" },
-        "discord_thread_id": { "type": "string",           "required": false, "@doc": "Discord thread ID if delivered inside a thread" },
-        "fallback_reason":   { "type": "string",           "required": false, "@doc": "Why preferred mode was bypassed e.g. dm_disabled, cross_shard" },
-        "attempted_modes":   { "type": "AddressingMode[]", "required": false, "@doc": "Ordered list of modes tried before success" }
-      }
-    }
-  },
-
-  "interfaces": {
-
-    "registry": {
-      "@id": 1,
-      "@doc": "Agent presence, capability advertisement, and peer discovery.",
-      "register":   { "@id": 1, "method": "da2a.registry.register",   "@doc": "Publish AgentCard; receive peer list. Set dm_enabled in card so orchestrators choose delivery mode correctly.", "params": { "card": { "type": "AgentCard", "required": true } }, "returns": { "accepted": { "type": "boolean" }, "peers": { "type": "AgentCard[]" }, "session_id": { "type": "SessionId" } } },
-      "deregister": { "@id": 2, "method": "da2a.registry.deregister", "@doc": "Graceful shutdown signal.", "params": { "agent_id": { "type": "AgentId", "required": true } }, "returns": { "acknowledged": { "type": "boolean" } } },
-      "query":      { "@id": 3, "method": "da2a.registry.query",      "@doc": "Discover agents by capability, role, or skill. Returns dm_enabled so caller chooses delivery mode.", "params": { "capability": { "type": "CapabilityTag" }, "role": { "type": "AgentRole" }, "skill_id": { "type": "string" } }, "returns": { "agents": { "type": "AgentCard[]" } } },
-      "heartbeat":  { "@id": 4, "method": "da2a.registry.heartbeat",  "@doc": "30s liveness signal. Agents silent for 2*ttl_seconds are evicted.", "@notification": true, "params": { "agent_id": { "type": "AgentId", "required": true }, "state": { "type": "TaskState" }, "load_pct": { "type": "uint32" } } }
-    },
-
-    "task": {
-      "@id": 2,
-      "@doc": "Task dispatch, lifecycle management, and result retrieval.",
-      "submit":     { "@id": 1, "method": "da2a.task.submit",     "@idempotent": true, "@doc": "Dispatch TaskSpec to a worker. Prefer discord_dm if target.dm_enabled=true.", "params": { "spec": { "type": "TaskSpec", "required": true } }, "returns": { "task_id": { "type": "TaskId" }, "state": { "type": "TaskState" }, "queue_pos": { "type": "uint32" } } },
-      "get_result": { "@id": 2, "method": "da2a.task.get_result", "@doc": "Poll for current TaskResult.", "params": { "task_id": { "type": "TaskId", "required": true } }, "returns": { "type": "TaskResult" } },
-      "cancel":     { "@id": 3, "method": "da2a.task.cancel",     "@doc": "Best-effort cancellation.", "params": { "task_id": { "type": "TaskId", "required": true }, "reason": { "type": "string" } }, "returns": { "cancelled": { "type": "boolean" } } },
-      "progress":   { "@id": 4, "method": "da2a.task.progress",   "@notification": true, "@doc": "Streaming progress broadcast. Delivered via discord_reply on original submit message when possible.", "params": { "type": "ProgressEvent" } },
-      "complete":   { "@id": 5, "method": "da2a.task.complete",   "@notification": true, "@doc": "Final TaskResult broadcast. Use discord_reply on the original submit message for implicit threading.", "params": { "type": "TaskResult" } }
-    },
-
-    "message": {
-      "@id": 3,
-      "@doc": "Rich A2A messaging. Prefer discord_dm (unicast) or discord_reply (in-thread) before channel send.",
-      "send":  { "@id": 1, "method": "da2a.message.send",  "@doc": "Send multipart RichContent to channel. Caller chooses delivery_mode; result records actual mode used.", "params": { "content": { "type": "RichContent", "required": true }, "reply_to": { "type": "MessageId", "required": false, "@doc": "Semantic metadata fallback. Prefer discord message.reply()." }, "thread_id": { "type": "string", "required": false }, "delivery_mode": { "type": "AddressingMode", "required": false, "@doc": "Requested mode. Agent MAY fall back if unavailable." } }, "returns": { "delivered": { "type": "boolean" }, "discord_msg_id": { "type": "string" }, "actual_delivery": { "type": "DiscordDelivery" } } },
-      "react": { "@id": 2, "method": "da2a.message.react", "@notification": true, "@doc": "Emoji ACK. Convention: checkmark=accept, arrows=processing, x=reject, pause=paused, package=artifact_ready", "params": { "discord_msg_id": { "type": "string", "required": true }, "emoji": { "type": "string", "required": true } } },
-      "dm":    { "@id": 3, "method": "da2a.message.dm",    "@doc": "NEW v1.1.0 — Preferred unicast. Creates DM channel with target bot and sends envelope. Raises DM_UNAVAILABLE (-32012) if DMs disabled.", "params": { "to": { "type": "AgentId", "required": true, "@doc": "Target bot Snowflake" }, "content": { "type": "RichContent", "required": true } }, "returns": { "delivered": { "type": "boolean" }, "dm_channel_id": { "type": "string" }, "discord_msg_id": { "type": "string" } } },
-      "reply": { "@id": 4, "method": "da2a.message.reply", "@doc": "NEW v1.1.0 — Preferred in-channel response via discord message.reply(). Preserves visual thread grouping. Falls back to channel send if source message unavailable.", "params": { "discord_msg_id": { "type": "string", "required": true, "@doc": "Snowflake of message being replied to" }, "content": { "type": "RichContent", "required": true }, "mention": { "type": "boolean", "required": false, "@doc": "Whether to @mention the sender. Default: false." } }, "returns": { "delivered": { "type": "boolean" }, "reply_discord_msg_id": { "type": "string" } } }
-    },
-
-    "session": {
-      "@id": 4,
-      "@doc": "Multi-agent workflow session management.",
-      "create":         { "@id": 1, "method": "da2a.session.create",         "@doc": "Create session with participant list and shared context.", "params": { "participants": { "type": "AgentId[]", "required": true }, "context": { "type": "json", "required": false }, "ttl_seconds": { "type": "uint32", "required": false } }, "returns": { "session_id": { "type": "SessionId" }, "created_at": { "type": "timestamp" } } },
-      "update_context": { "@id": 2, "method": "da2a.session.update_context", "@doc": "RFC 7396 Merge Patch on shared context.", "params": { "session_id": { "type": "SessionId", "required": true }, "patch": { "type": "json", "required": true } }, "returns": { "updated": { "type": "boolean" } } },
-      "close":          { "@id": 3, "method": "da2a.session.close",          "@doc": "Terminate session and notify participants.", "params": { "session_id": { "type": "SessionId", "required": true }, "reason": { "type": "string" } }, "returns": { "closed": { "type": "boolean" } } }
-    }
-  },
-
-  "transport_constraints": {
-    "@doc": "Hard limits enforced by the Discord transport layer.",
-    "addressing_precedence": [
-      { "mode": "discord_dm",        "priority": 1, "when": "Unicast to agent with dm_enabled:true",          "how": "create_dm(target_bot_id) then send(envelope_json)",                "fallback_on": ["DM_UNAVAILABLE (-32012)", "bot privacy settings"] },
-      { "mode": "discord_reply",     "priority": 2, "when": "Responding to a message in the same channel",    "how": "original_message.reply(content=envelope_json, mention_author=false)", "fallback_on": ["source message deleted", "cross-channel reply not supported"] },
-      { "mode": "discord_mention",   "priority": 3, "when": "Soft-notifying an agent",                        "how": "channel.send(f'<@bot_id> {envelope_json}')",                          "note": "Strip mention prefix before parsing envelope" },
-      { "mode": "envelope_to_field", "priority": 4, "when": "Fallback — DM unavailable, audit replay, cross-shard", "how": "channel.send(envelope_json) where envelope.to = target_snowflake",  "note": "All bots receive; receiver filters on envelope.to === MY_ID" }
+    "PacketTheme": [
+      "human_readable",   // default — "[DA2A-HO pkt=N conv=X ...]" compact text header
+      "compact_json"      // machine-first opcode arrays; negotiated between agents
     ],
-    "envelope_to_semantics": "metadata_and_fallback_only",
-    "max_message_chars":                   2000,
-    "max_embed_chars":                     6000,
-    "max_embed_fields":                    25,
-    "max_embeds_per_msg":                  10,
-    "max_file_size_bytes":                 26214400,
-    "rate_limit_msgs_per_channel_per_sec": 5,
-    "rate_limit_global_per_sec":           50,
-    "encoding":                            "UTF-8",
-    "required_intents":    ["GUILDS", "GUILD_MESSAGES", "MESSAGE_CONTENT"],
-    "recommended_intents": ["GUILD_MEMBERS", "GUILD_MESSAGE_REACTIONS"],
-    "chunking_strategy": {
-      "@doc": "When payload >1500 chars use content_url or split into chunks with metadata.chunk / metadata.total_chunks",
-      "prefer": "content_url",
-      "chunk_metadata_fields": ["chunk", "total_chunks", "part_id"]
+    "AccessMode": [
+      "listen",    // observing medium — no transmission permitted
+      "contend",   // ready to transmit; waiting for clear medium
+      "transmit",  // actively sending; baton held
+      "backoff",   // post-collision or ALL_STOP randomized wait
+      "override"   // human operator has seized baton
+    ],
+    "ProtocolState": [
+      "IDLE","OPENING","ACTIVE","DEGRADED_SIGNAL",
+      "COLLISION_BACKOFF","HUMAN_OVERRIDE","CLOSED"
+    ],
+    "PacketIntent": [
+      "open","close",
+      "handoff","ask","result","status",
+      "ack","nack","heartbeat",
+      "memory_proxy_request","memory_proxy_response",
+      "cache_ref",
+      "all_stop","resume",
+      "artifact_announce","roster_update"
+    ],
+    // DeliveryMode is harness-only — implicit from Discord message type (DM / reply /
+    // thread / mention). It is NOT carried inside any DA2A-HO packet payload.
+    // See transport_constraints.addressing_precedence for harness selection order.
+    "AckCode": ["ok","duplicate","hash_mismatch","out_of_order","unsupported","busy"],
+    "StorageBackend": ["discord_attachment","cloudflare_r2","aws_s3","minio"],
+    "ArtifactRole":   ["artifact","whiteboard","replay_bundle","cache_ref","vocabulary","roster"],
+    "JoinMode":       ["none","direct_update_required"]
+  },
+
+  // ---------------------------------------------------------------------------
+  // SECTION 2 — Layer 1 Structs (Accessing)
+  // ---------------------------------------------------------------------------
+  "layer_1_structs": {
+
+    // One channel MUST have exactly ONE ConversationBaton at any time.
+    "ConversationBaton": {
+      "channel_id":        "ChannelId",
+      "conversation_hash": "ConversationHash",
+      "holder":            "AgentId|HumanId",
+      "created_by":        "AgentId|HumanId",
+      "created_at":        "string",   // ISO-8601 — set by harness from Discord message.timestamp
+      "ttl_seconds":       "number|null"
+    },
+
+    // Observable medium state assessed before transmitting.
+    "AccessObservation": {
+      "channel_id":               "ChannelId",
+      "presence_visible":         "boolean|null",
+      "recent_activity_detected": "boolean",
+      "reply_chain_active":       "boolean",
+      "thread_active":            "boolean",
+      "medium_busy":              "boolean",
+      "recommended_mode":         "AccessMode"
+    },
+
+    "L1AccessHeader": {
+      "channel_id":         "ChannelId",
+      "conversation_hash":  "ConversationHash",
+      "protocol_state":     "ProtocolState",
+      "access_observation": "AccessObservation",
+      "baton":              "ConversationBaton"
+    },
+
+    "BatonControl": {
+      "action": ["hold","transfer","request","take","release"],
+      "from":   "AgentId|HumanId",
+      "to":     "AgentId|HumanId|null",
+      "reason": "string|null"
+    },
+
+    "BackoffConfig": {
+      "min_ms":                "number",
+      "max_ms":                "number",
+      "jitter":                "boolean",
+      "cancel_pending_replies": "boolean"
     }
+  },
+
+  // ---------------------------------------------------------------------------
+  // SECTION 3 — Layer 2 Structs (Talking)
+  // ---------------------------------------------------------------------------
+  "layer_2_structs": {
+
+    // -------------------------------------------------------------------------
+    // L2TalkHeader — DA2A-HO packet envelope
+    //
+    // DISCORD-NATIVE FIELDS — provided by Discord; MUST NOT be duplicated here:
+    //   timestamp     → Discord message.timestamp  (Snowflake; ms precision)
+    //   channel_id    → Discord message.channel_id
+    //   from / author → Discord message.author.id
+    //   to            → Discord DM target or @mention; harness sets before send
+    //   delivery_mode → implicit from Discord message type (DM/reply/thread/mention)
+    //
+    // DA2A-HO carries ONLY what Discord does not already provide.
+    // -------------------------------------------------------------------------
+    "L2TalkHeader": {
+      "packet_id":    "PacketId",       // DA2A correlation ID — NOT the Discord message ID
+      "seq":          "number",         // Monotonic per-conversation sequence counter
+      "intent":       "PacketIntent",
+      "theme":        "PacketTheme",
+      "reply_to":     "PacketId|null",  // DA2A-level thread correlation
+      "ack":          "AckState|null",
+      "content_hash": "Sha256|null"     // SHA-256 of serialized payload (Discord does not provide)
+    },
+
+    "AckState": {
+      "ack_for": "PacketId",
+      "code":    "AckCode",
+      "detail":  "string|null"
+    },
+
+    // Primary payload for handoff / ask / result.
+    // Agents MUST send deltas — never full transcript replay.
+    "StateDelta": {
+      "goal":               "string|null",
+      "phase":              "string|null",
+      "decision_delta":     "string[]",
+      "constraints":        "string[]",
+      "open_questions":     "string[]",
+      "requested_action":   "string|null",
+      "max_response_chars": "number|null"
+    },
+
+    // Memory proxy — agents MUST use this; direct remote memory mounts are FORBIDDEN.
+    "MemoryProxyRequest": {
+      "query":              "string",
+      "max_items":          "number",
+      "summary_only":       "boolean",
+      "include_source_ids": "boolean",
+      "exclude_private":    "boolean"
+    },
+    "MemoryProxyResponse": {
+      "summary":     "string[]",
+      "source_refs": "string[]",
+      "confidence":  "number"    // 0.0–1.0
+    },
+
+    // KV-cache reference — raw KV tensors MUST NOT be transmitted over Discord.
+    "KvCacheReference": {
+      "cache_id":               "string",
+      "owner":                  "AgentId",
+      "model_family":           "string",
+      "compatibility":          "string",   // "metadata_only" | "binary_compatible" | "none"
+      "uri":                    "string|null",
+      "sha256":                 "Sha256|null",
+      "fallback_text_required": "boolean"
+    },
+
+    "ChannelQuality": {
+      "latency_ms_avg":    "number",
+      "message_loss_rate": "number",
+      "duplicate_rate":    "number",
+      "parse_error_rate":  "number",
+      "out_of_order_count":"number",
+      "rate_limit_events": "number",
+      "confidence":        "number"
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // SECTION 4 — Layer 3 Structs (Assimilation)
+  // ---------------------------------------------------------------------------
+  "layer_3_structs": {
+
+    "L3AssimilationHeader": {
+      "local_cache_update": "boolean",
+      "evict_on_close":     "boolean",
+      "compression_hint":   ["none","lz4","zstd"],
+      "encoding_layers":    "number"   // 1=human text, 2=compact_json, 3=binary
+    },
+
+    "RemoteMemoryRecord": {
+      "source_agent": "AgentId",
+      "summary":      "string",
+      "source_ids":   "string[]",
+      "confidence":   "number",
+      "evict_at":     "string|null"
+    },
+
+    "WhiteboardRecord": {
+      "artifact_id":    "string",
+      "role":           "ArtifactRole",
+      "uri":            "string",
+      "sha256":         "Sha256",
+      "retrieved_at":   "string",   // ISO-8601; set by harness at retrieval time
+      "evict_on_close": "boolean"
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // SECTION 5 — Composite Packet
+  // ---------------------------------------------------------------------------
+  "ThreeLayerPacket": {
+    "l1":      "L1AccessHeader",
+    "l2":      "L2TalkHeader",
+    "l3":      "L3AssimilationHeader",
+    "payload": "StateDelta | MemoryProxyRequest | MemoryProxyResponse | KvCacheReference | ArtifactAnnouncement | BatonControl | BackoffConfig | null",
+
+    // discord_message_id: optional audit/replay field only.
+    // timestamp, channel_id, from, to are provided by Discord — not repeated here.
+    "discord_message_id": "string|null"
+  },
+
+  // ---------------------------------------------------------------------------
+  // SECTION 6 — Artifact Announcement
+  // ---------------------------------------------------------------------------
+  "ArtifactAnnouncement": {
+    "artifact_id":     "string",
+    "role":            "ArtifactRole",
+    "uri":             "string",
+    "backend":         "StorageBackend",
+    "sha256":          "Sha256",
+    "size_bytes":      "number",
+    "mime_type":       "string",
+    "ttl_seconds":     "number|null",
+    "fallback_inline": "string|null"
+  },
+
+  // ---------------------------------------------------------------------------
+  // SECTION 7 — RPC Methods
+  // ---------------------------------------------------------------------------
+  "interfaces": {
+    "access": [
+      "access.baton.claim",
+      "access.baton.transfer",
+      "access.baton.request",
+      "access.baton.take",
+      "access.baton.release",
+      "access.all_stop",
+      "access.resume",
+      "access.heartbeat"
+    ],
+    "talk": [
+      "talk.open",
+      "talk.close",
+      "talk.handoff",
+      "talk.ask",
+      "talk.result",
+      "talk.status",
+      "talk.ack",
+      "talk.nack",
+      "talk.memory.proxy_request",
+      "talk.memory.proxy_response",
+      "talk.cache.ref",
+      "talk.artifact.announce",
+      "talk.roster.update"
+    ],
+    "assimilate": [
+      "assimilate.memory_record",
+      "assimilate.whiteboard_record",
+      "assimilate.evict",
+      "assimilate.recover_from_whiteboard"
+    ]
+  },
+
+  // ---------------------------------------------------------------------------
+  // SECTION 8 — Protocol State Machine
+  // ---------------------------------------------------------------------------
+  "state_machine": {
+    "states": [
+      "IDLE","OPENING","ACTIVE","DEGRADED_SIGNAL",
+      "COLLISION_BACKOFF","HUMAN_OVERRIDE","CLOSED"
+    ],
+    "transitions": [
+      { "from": "IDLE",              "to": "OPENING",           "trigger": "access.baton.claim" },
+      { "from": "OPENING",           "to": "ACTIVE",            "trigger": "talk.open + ack received" },
+      { "from": "ACTIVE",            "to": "DEGRADED_SIGNAL",   "trigger": "ChannelQuality confidence < 0.5" },
+      { "from": "ACTIVE",            "to": "COLLISION_BACKOFF", "trigger": "access.all_stop" },
+      { "from": "ACTIVE",            "to": "HUMAN_OVERRIDE",    "trigger": "access.baton.take (human)" },
+      { "from": "DEGRADED_SIGNAL",   "to": "ACTIVE",            "trigger": "quality recovered" },
+      { "from": "DEGRADED_SIGNAL",   "to": "COLLISION_BACKOFF", "trigger": "parse_error_rate > threshold" },
+      { "from": "COLLISION_BACKOFF", "to": "ACTIVE",            "trigger": "access.resume after backoff" },
+      { "from": "HUMAN_OVERRIDE",    "to": "ACTIVE",            "trigger": "human releases baton" },
+      { "from": "HUMAN_OVERRIDE",    "to": "CLOSED",            "trigger": "human issues close" },
+      { "from": "ACTIVE",            "to": "CLOSED",            "trigger": "talk.close acknowledged" }
+    ]
+  },
+
+  // ---------------------------------------------------------------------------
+  // SECTION 9 — Transport Constraints
+  // ---------------------------------------------------------------------------
+  "transport_constraints": {
+    "discord_message_limit_chars":        2000,
+    "discord_nitro_limit_chars":          4000,
+    "discord_attachment_limit_mb":        25,
+    "escalation_to_attachment_chars":     1800,
+    "escalation_to_external_store_bytes": 26214400,
+
+    // Harness delivery selection order — NOT carried inside the DA2A packet.
+    // Discord message type is the delivery record; this array guides harness behaviour only.
+    "addressing_precedence": [
+      "discord_dm",      // 1st: private unicast
+      "discord_reply",   // 2nd: in-thread correlation
+      "discord_thread",  // 3rd: topic isolation
+      "discord_mention", // 4th: soft notification
+      "envelope_only"    // 5th: control-plane fallback
+    ],
+
+    "normative_rules": [
+      "Implementations SHOULD use Discord-native DM, reply, and thread as the primary delivery substrate.",
+      "Implementations SHOULD prefer compact state deltas, hashes, and references over transcript replay.",
+      "Implementations MAY use external object storage for artifacts exceeding Discord limits or requiring durable multi-session retrieval.",
+      "Implementations MUST NOT assume direct remote memory mounting between agent runtimes over Discord transport."
+    ]
   }
 }

@@ -1,0 +1,37 @@
+{
+  // ==========================================================================
+  // Example 11 — BLP Admission Grant
+  // Orchestrator (OpenClaw) grants OpenCode admission and broadcasts
+  // the SessionPolicy so all agents know the access matrix.
+  // ==========================================================================
+  "session_policy_broadcast": {
+    "l1": { "protocol_state": "OPENING", "baton": { "holder": "agent.openclaw", "conversation_hash": "conv_alpha_001", "created_at": "≪ Discord timestamp ≫" } },
+    "l2": { "packet_id": "pkt_adm_002", "seq": 4, "intent": "open", "theme": "human_readable", "reply_to": "pkt_adm_001", "ack": { "ack_for": "pkt_adm_001", "code": "ok", "detail": null }, "content_hash": "sha256:adm002..." },
+    "l3": { "local_cache_update": true, "evict_on_close": true, "compression_hint": "none", "encoding_layers": 1 },
+    "payload": {
+      "admission_decision": {
+        "agent_id":            "agent.opencode",
+        "conversation_hash":   "conv_alpha_001",
+        "decision":            "admitted",
+        "granted_clearance":   "INTERNAL",
+        "reason":              null,
+        "join_mode":           "none",
+        "access_matrix_patch": {
+          "agent.opencode": ["handoff","ask","result","ack","nack","memory_proxy_request","cache_ref"]
+        }
+      },
+      "session_policy": {
+        "conversation_hash":           "conv_alpha_001",
+        "default_clearance":           "INTERNAL",
+        "strong_star_property":        false,
+        "require_all_agents_admitted": true,
+        "violation_action":            "IMMEDIATE_HALT_BATON_TO_HUMAN",
+        "access_matrix": {
+          "agent.openclaw":  ["open","close","handoff","ask","result","status","ack","nack","memory_proxy_request","memory_proxy_response","cache_ref","artifact_announce","roster_update","all_stop","resume","heartbeat"],
+          "agent.opencode":  ["handoff","ask","result","ack","nack","memory_proxy_request","cache_ref"]
+        }
+      }
+    }
+  },
+  "note": "After this packet is ACKed, protocol_state transitions OPENING→ACTIVE for all admitted agents."
+}

@@ -1,0 +1,55 @@
+{
+  // ==========================================================================
+  // Example 01 — Session Open
+  // Orchestrator (OpenClaw) claims the baton and broadcasts session open.
+  // All discord-native fields (timestamp, channel_id, from/to, delivery_mode)
+  // are provided by Discord and are NOT duplicated here.
+  // ==========================================================================
+  "l1": {
+    "channel_id":        "1234567890",
+    "conversation_hash": "conv_alpha_001",
+    "protocol_state":    "OPENING",
+    "access_observation": {
+      "channel_id":               "1234567890",
+      "presence_visible":         true,
+      "recent_activity_detected": false,
+      "reply_chain_active":       false,
+      "thread_active":            false,
+      "medium_busy":              false,
+      "recommended_mode":         "transmit"
+    },
+    "baton": {
+      "channel_id":        "1234567890",
+      "conversation_hash": "conv_alpha_001",
+      "holder":            "agent.openclaw",
+      "created_by":        "agent.openclaw",
+      "created_at":        "≪ from Discord message.timestamp ≫",
+      "ttl_seconds":       300
+    }
+  },
+  "l2": {
+    "packet_id":    "pkt_0001",
+    "seq":          1,
+    "intent":       "open",
+    "theme":        "human_readable",
+    "reply_to":     null,
+    "ack":          null,
+    "content_hash": "sha256:aabbcc..."
+  },
+  "l3": {
+    "local_cache_update": false,
+    "evict_on_close":     true,
+    "compression_hint":   "none",
+    "encoding_layers":    1
+  },
+  "payload": {
+    "goal":               "Review and patch the DA2A-HO protocol schema",
+    "phase":              "kickoff",
+    "decision_delta":     ["Protocol v1.3.1 in scope"],
+    "constraints":        ["Max 2000 chars/message","BLP enforced","No transcript replay"],
+    "open_questions":     ["Which examples need rework?"],
+    "requested_action":   "admission.policy.broadcast",
+    "max_response_chars": 1800
+  },
+  "discord_message_id": null
+}

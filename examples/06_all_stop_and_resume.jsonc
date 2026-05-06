@@ -1,0 +1,22 @@
+{
+  // ==========================================================================
+  // Example 06 — ALL_STOP and Resume
+  // Used after collision or policy violation. Baton moves to human.
+  // Agents backoff before resume.
+  // ==========================================================================
+  "all_stop": {
+    "l1": { "protocol_state": "COLLISION_BACKOFF", "baton": { "holder": "human.operator", "conversation_hash": "conv_alpha_001", "created_at": "≪ Discord timestamp ≫" } },
+    "l2": { "packet_id": "pkt_0040", "seq": 40, "intent": "all_stop", "theme": "human_readable", "reply_to": null, "ack": null, "content_hash": null },
+    "l3": { "local_cache_update": false, "evict_on_close": false, "compression_hint": "none", "encoding_layers": 1 },
+    "payload": {
+      "baton_control": { "action": "take", "from": "agent.openclaw", "to": "human.operator", "reason": "Simultaneous packet collision detected" },
+      "backoff_config": { "min_ms": 500, "max_ms": 3000, "jitter": true, "cancel_pending_replies": true }
+    }
+  },
+  "resume": {
+    "l1": { "protocol_state": "ACTIVE", "baton": { "holder": "agent.openclaw", "conversation_hash": "conv_alpha_001", "created_at": "≪ Discord timestamp ≫" } },
+    "l2": { "packet_id": "pkt_0041", "seq": 41, "intent": "resume", "theme": "human_readable", "reply_to": "pkt_0040", "ack": { "ack_for": "pkt_0040", "code": "ok", "detail": null }, "content_hash": null },
+    "l3": { "local_cache_update": false, "evict_on_close": false, "compression_hint": "none", "encoding_layers": 1 },
+    "payload": null
+  }
+}

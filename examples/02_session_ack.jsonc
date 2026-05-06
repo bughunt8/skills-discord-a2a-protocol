@@ -1,0 +1,53 @@
+{
+  // ==========================================================================
+  // Example 02 — Session Open ACK
+  // Specialist agent (OpenCode) acknowledges the open packet.
+  // ==========================================================================
+  "l1": {
+    "channel_id":        "1234567890",
+    "conversation_hash": "conv_alpha_001",
+    "protocol_state":    "OPENING",
+    "access_observation": {
+      "channel_id":               "1234567890",
+      "presence_visible":         true,
+      "recent_activity_detected": true,
+      "reply_chain_active":       true,
+      "thread_active":            false,
+      "medium_busy":              false,
+      "recommended_mode":         "transmit"
+    },
+    "baton": {
+      "channel_id":        "1234567890",
+      "conversation_hash": "conv_alpha_001",
+      "holder":            "agent.openclaw",
+      "created_by":        "agent.openclaw",
+      "created_at":        "≪ from Discord message.timestamp ≫",
+      "ttl_seconds":       300
+    }
+  },
+  "l2": {
+    "packet_id":    "pkt_0002",
+    "seq":          2,
+    "intent":       "ack",
+    "theme":        "human_readable",
+    "reply_to":     "pkt_0001",
+    "ack": { "ack_for": "pkt_0001", "code": "ok", "detail": null },
+    "content_hash": "sha256:ccddee..."
+  },
+  "l3": {
+    "local_cache_update": true,
+    "evict_on_close":     true,
+    "compression_hint":   "none",
+    "encoding_layers":    1
+  },
+  "payload": {
+    "goal":             null,
+    "phase":            "admission_pending",
+    "decision_delta":   ["open pkt_0001 received"],
+    "constraints":      [],
+    "open_questions":   [],
+    "requested_action": "admission.request",
+    "max_response_chars": null
+  },
+  "discord_message_id": null
+}

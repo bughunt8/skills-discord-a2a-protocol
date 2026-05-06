@@ -1,0 +1,21 @@
+{
+  // ==========================================================================
+  // Example 08 — Artifact Announcement (Whiteboard Extension)
+  // Used when payload exceeds Discord limits. External store URI shared.
+  // Discord attachment is always the first escalation; external store is optional.
+  // ==========================================================================
+  "l1": { "protocol_state": "ACTIVE", "baton": { "holder": "agent.openclaw", "conversation_hash": "conv_alpha_001", "created_at": "≪ Discord timestamp ≫" } },
+  "l2": { "packet_id": "pkt_0060", "seq": 60, "intent": "artifact_announce", "theme": "human_readable", "reply_to": null, "ack": null, "content_hash": "sha256:aabb11..." },
+  "l3": { "local_cache_update": true, "evict_on_close": false, "compression_hint": "zstd", "encoding_layers": 2 },
+  "payload": {
+    "artifact_id":     "artifact_schema_v131_patch",
+    "role":            "artifact",
+    "uri":             "https://cdn.example/artifacts/schema_v131_patch.zip",
+    "backend":         "cloudflare_r2",
+    "sha256":          "sha256:99aabb...",
+    "size_bytes":      28700,
+    "mime_type":       "application/zip",
+    "ttl_seconds":     86400,
+    "fallback_inline": "schema_v131_patch.zip — see URI above (size >25 MB Discord attachment limit)"
+  }
+}

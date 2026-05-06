@@ -1,0 +1,29 @@
+{
+  // ==========================================================================
+  // Example 12 — BLP Violation → Immediate Halt
+  // An admitted agent violates the star (*) property (write-below-clearance).
+  // The harness immediately broadcasts ViolationNotice; baton → human.operator.
+  // ALL agents MUST stop transmitting.
+  // ==========================================================================
+  "violation_notice": {
+    "l1": { "protocol_state": "HUMAN_OVERRIDE", "baton": { "holder": "human.operator", "conversation_hash": "conv_alpha_001", "created_at": "≪ Discord timestamp ≫" } },
+    "l2": { "packet_id": "pkt_vio_001", "seq": 55, "intent": "all_stop", "theme": "human_readable", "reply_to": null, "ack": null, "content_hash": "sha256:vio001..." },
+    "l3": { "local_cache_update": false, "evict_on_close": false, "compression_hint": "none", "encoding_layers": 1 },
+    "payload": {
+      "violation_notice": {
+        "conversation_hash":   "conv_alpha_001",
+        "violating_agent":     "agent.opencode",
+        "rule_violated":       "star_property",
+        "description":         "agent.opencode attempted to send CONFIDENTIAL content to a PUBLIC channel",
+        "evidence_packet_id":  "pkt_0054",
+        "effect": {
+          "session_state":   "HUMAN_OVERRIDE",
+          "baton_seized_by": "human.operator",
+          "all_agents_halt": true
+        }
+      },
+      "baton_control": { "action": "take", "from": "agent.opencode", "to": "human.operator", "reason": "BLP star_property violation" }
+    }
+  },
+  "resumption_note": "Conversation only resumes if human.operator explicitly issues access.resume. Agent may be re-admitted at human discretion after review."
+}

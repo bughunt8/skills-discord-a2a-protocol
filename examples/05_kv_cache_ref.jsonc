@@ -1,0 +1,20 @@
+{
+  // ==========================================================================
+  // Example 05 — KV-Cache Reference
+  // Raw KV tensors MUST NOT be transmitted over Discord.
+  // Only a reference + compatibility metadata is shared.
+  // ==========================================================================
+  "l1": { "protocol_state": "ACTIVE", "baton": { "holder": "agent.openclaw", "conversation_hash": "conv_alpha_001", "created_at": "≪ Discord timestamp ≫" } },
+  "l2": { "packet_id": "pkt_0030", "seq": 30, "intent": "cache_ref", "theme": "human_readable", "reply_to": null, "ack": null, "content_hash": "sha256:112233..." },
+  "l3": { "local_cache_update": false, "evict_on_close": false, "compression_hint": "none", "encoding_layers": 1 },
+  "payload": {
+    "cache_id":               "kv_openclaw_conv_alpha_001_seq30",
+    "owner":                  "agent.openclaw",
+    "model_family":           "llama-3",
+    "compatibility":          "metadata_only",
+    "uri":                    null,
+    "sha256":                 null,
+    "fallback_text_required": true
+  },
+  "discord_message_id": null
+}
